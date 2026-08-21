@@ -2,10 +2,11 @@ mod api;
 mod routes;
 mod utils;
 
-use api::healthcheck;
+use api::{healthcheck, download_youtube_mp4};
+use routes::root;
+
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
-use routes::root;
 use std::env;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::info;
@@ -42,6 +43,11 @@ async fn main() -> Result<()> {
 
     println!("Server running on http://{}", bind_address);
 
+    let result = download_youtube_mp4::download_youtube_mp4("https://www.youtube.com/watch?v=IxX_QHay02M", 1024).await;
+    match result {
+        Ok(path) => println!("Path: {}", path.display()),
+        Err(e) => println!("Error: {}", e),
+    }
     axum::serve(listener, app).await?;
 
     Ok(())

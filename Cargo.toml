@@ -56,3 +56,6 @@ image = "0.25"
 
 # Concurrent data structures
 dashmap = "6"
+
+# Youtube downloading
+yt-dlp = "2.8.2"

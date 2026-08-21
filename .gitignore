@@ -12,3 +12,6 @@
 
 # Storage for files uploaded by users
 /storage
+
+# Bin
+/bin
