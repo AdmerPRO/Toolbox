@@ -2,6 +2,9 @@ mod api;
 mod utils;
 mod routes;
 
+use api::healthcheck;
+use routes::root;
+
 use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use std::env;
@@ -29,8 +32,8 @@ async fn main() -> Result<()> {
     let bind_address = format!("{}:{}", host, port);
 
     let app = Router::new()
-        .route("/", get(root_handler))
-        .route("/api/healthcheck", get(healthcheck_handler))
+        .route("/", get(root::root_handler))
+        .route("/api/healthcheck", get(healthcheck::healthcheck_handler))
         .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&bind_address)
@@ -42,16 +45,4 @@ async fn main() -> Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-async fn root_handler() -> &'static str {
-    info!("Main site handler");
-    "Hello!!"
-}
-
-async fn healthcheck_handler() -> &'static str {
-    let status = "ok";
-    info!(status = status, endpoint = "/api/healthcheck", "Healthcheck");
-    
-    "OK"
 }
