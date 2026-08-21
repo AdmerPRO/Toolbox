@@ -60,3 +60,7 @@ dashmap = "6"
 
 # Youtube downloading
 yt-dlp = "2.8.2"
+
+# Misc
+rand = "0.10.2"
+regex = "1"
