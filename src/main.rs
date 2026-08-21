@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(root::root_handler))
         .route("/api/healthcheck", get(healthcheck::healthcheck_handler))
+        .route("/api/youtube/file/{filename}", get(download_file_handler),)
         .fallback_service(ServeDir::new("frontend"))
         .layer(TraceLayer::new_for_http());
 
@@ -43,7 +44,7 @@ async fn main() -> Result<()> {
 
     println!("Server running on http://{}", bind_address);
 
-    let result = download_youtube_mp4::download_youtube_mp4("https://www.youtube.com/watch?v=IxX_QHay02M", 1024).await;
+    let result = download_youtube_mp4::download_youtube_mp4("https://www.youtube.com/watch?v=IxX_QHay02M", 1024).await; // Epilepsy Warning
     match result {
         Ok(path) => println!("Path: {}", path.display()),
         Err(e) => println!("Error: {}", e),
