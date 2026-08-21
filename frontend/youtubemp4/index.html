@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube MP4 Downloader</title>
+    <link rel="stylesheet" href="/youtubemp4/style.css">
+</head>
+<body>
+    <main class="downloader">
+        <a class="back-link" href="/">← Home</a>
+        <h1>YouTube MP4 Downloader</h1>
+        <p class="lead">Paste a YouTube video link and choose an MP4 quality.</p>
+
+        <form id="video-form" class="search-form">
+            <label for="youtube-url">YouTube video link</label>
+            <div class="input-row">
+                <input id="youtube-url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+                <button type="submit">Start</button>
+            </div>
+        </form>
+
+        <p id="status" class="status" aria-live="polite"></p>
+
+        <section id="video-result" class="video-result" hidden>
+            <img id="thumbnail" alt="Video Thuimbail">
+            <div class="video-details">
+                <h2 id="video-title"></h2>
+                <label for="quality">MP4 quality</label>
+                <select id="quality"></select>
+                <button id="download-button" type="button">Download</button>
+            </div>
+        </section>
+    </main>
+    <script src="/youtubemp4/script.js"></script>
+</body>
+</html>

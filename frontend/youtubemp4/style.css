@@ -1,0 +1,142 @@
+:root {
+    color-scheme: dark;
+    font-family: "Segoe UI", sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: #111827;
+    color: #f9fafb;
+}
+
+.downloader {
+    width: min(720px, 100%);
+    padding: 36px;
+    border-radius: 16px;
+    background: #1f2937;
+    box-shadow: 0 16px 40px #0007;
+}
+
+.back-link {
+    color: #cbd5e1;
+    text-decoration: none;
+}
+
+h1 {
+    margin: 22px 0 8px;
+}
+
+.lead {
+    margin: 0 0 30px;
+    color: #cbd5e1;
+}
+
+label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.input-row {
+    display: flex;
+    gap: 10px;
+}
+
+input,
+select,
+button {
+    border-radius: 8px;
+    font: inherit;
+}
+
+input,
+select {
+    padding: 12px;
+    border: 1px solid #475569;
+    background: #0f172a;
+    color: inherit;
+}
+
+input {
+    flex: 1;
+    min-width: 0;
+}
+
+button {
+    padding: 12px 20px;
+    border: 0;
+    cursor: pointer;
+    background: #ef4444;
+    color: white;
+    font-weight: 700;
+}
+
+button:hover {
+    background: #dc2626;
+}
+
+button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.status {
+    min-height: 24px;
+    margin: 18px 0 0;
+    color: #fbbf24;
+}
+
+.status.error {
+    color: #fca5a5;
+}
+
+.video-result {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 22px;
+    margin-top: 18px;
+    padding-top: 24px;
+    border-top: 1px solid #475569;
+}
+
+.video-result img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 10px;
+    background: #0f172a;
+    object-fit: cover;
+}
+
+.video-details h2 {
+    margin: 0 0 20px;
+    font-size: 20px;
+}
+
+.video-details select {
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+@media (max-width: 560px) {
+    .downloader {
+        padding: 24px;
+    }
+
+    .input-row,
+    .video-result {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .video-result img {
+        width: 100%;
+    }
+}
