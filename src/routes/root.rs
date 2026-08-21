@@ -1,6 +1,7 @@
-use tracing::{info, warn};
+use axum::response::Html;
+use tracing::info;
 
-pub async fn root_handler() -> &'static str {
+pub async fn root_handler() -> Html<&'static str> {
     info!("Main site handler");
-    "Hello!!"
+    Html(include_str!("../../frontend/root/index.html"))
 }
