@@ -29,5 +29,5 @@ document.addEventListener("DOMContentLoaded", () => {
 
 closeBtn.addEventListener("click", () => {
     overlay.classList.remove("active");
-    setCookie("popup_seen", "1", 2);
+    setCookie("popup_seen", "1", 1);
 });
