@@ -1,1 +1,14 @@
+# Target directory
 /target
+
+# .env
+.env
+.env
+
+# Archive files
+*.rar
+*.zip
+*.tar
+
+# Storage for files uploaded by users
+/storage
