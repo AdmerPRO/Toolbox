@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/", get(root::root_handler))
         .route("/api/healthcheck", get(healthcheck::healthcheck_handler))
-        .route("/api/youtube/file/{filename}", get(download_file_handler),)
+        .route("/api/youtube/file/{filename}", get(download_youtube_mp4::download_file_handler))
         .fallback_service(ServeDir::new("frontend"))
         .layer(TraceLayer::new_for_http());
 

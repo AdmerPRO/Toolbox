@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 
 # Async runtime
-tokio = { version = "1", features = ["full", "io"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 
 # HTTP server
 axum = { version = "0.8", features = ["multipart", "ws"] }
