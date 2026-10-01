@@ -2,3 +2,5 @@ User-agent: *
 Allow: /
 Disallow: /api/
 Disallow: /storage/
+
+Sitemap: https://tools.admerpro.pl/sitemap.xml

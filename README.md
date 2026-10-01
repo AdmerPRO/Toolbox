@@ -28,6 +28,11 @@ cargo run
 
 Open http://127.0.0.1:3000. Optionally set `ADDRESS` and `PORT` in `.env`.
 Run commands from the project root so the frontend and storage paths resolve.
+Canonical links, `/sitemap.xml`, and the sitemap entry in `/robots.txt` use
+`https://tools.admerpro.pl` by default. Set `SITE_URL` to a different absolute
+HTTP or HTTPS origin when deploying elsewhere. All eight public pages have
+unique meta descriptions and canonical links; download endpoints are excluded
+from the sitemap. The navigation uses the cat image as its brand icon.
 
 Pages: `/`, `/youtubemp4/`, `/youtubemp3/`, `/images/`, `/mp4tomp3/`, `/resize/`, `/mute/`, `/privacy/`.
 FFmpeg is also required for uploaded MP4 audio extraction. Image conversion

@@ -336,6 +336,15 @@ button:disabled {
     margin:13px 0 0;
 }
 
+.brand-cat {
+    width:38px;
+    height:38px;
+    flex-shrink:0;
+    object-fit:cover;
+    border-radius:12px;
+    border:1px solid var(--line);
+}
+
 .site-header { flex-wrap:wrap; }
 .brand { flex-shrink:0; }
 .main-nav { flex:1; flex-wrap:wrap; justify-content:flex-end; }

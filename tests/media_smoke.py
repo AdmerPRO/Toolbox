@@ -7,6 +7,7 @@ The server and all generated files are isolated in a temporary directory.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import socket
 import subprocess
@@ -15,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+import xml.etree.ElementTree as ET
 
 
 def main():
@@ -27,7 +29,7 @@ def main():
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
-        environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port))
+        environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port), SITE_URL=base)
         with (root / "server.log").open("w") as log:
             server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
             try:
@@ -68,9 +70,29 @@ def main():
                         assert error.code == expected, (error.code, error.read())
                         return None
 
-                for page in ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/privacy/"]:
+                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/privacy/"]
+                descriptions = []
+                for page in pages:
                     html, _ = get(page)
                     assert b"Privacy" in html
+                    text = html.decode("utf-8")
+                    descriptions.append(re.search(r'<meta name="description" content="([^"]+)"', text).group(1))
+                    assert text.count('rel="canonical"') == 1
+                    assert f'<link rel="canonical" href="{base}{page}">' in text
+                    assert 'class="brand-cat" src="/assets/good_cat_image.png"' in text
+                    assert '{{SITE_URL}}' not in text
+                assert len(set(descriptions)) == len(pages)
+                cat, cat_headers = get("/assets/good_cat_image.png")
+                assert cat.startswith(b"\x89PNG") and cat_headers["Content-Type"] == "image/png"
+                sitemap, sitemap_headers = get("/sitemap.xml")
+                assert sitemap_headers["Content-Type"].startswith("application/xml")
+                urls = [entry.text for entry in ET.fromstring(sitemap).findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url/{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
+                assert set(urls) == {base + page for page in pages}
+                robots, _ = get("/robots.txt")
+                assert robots.count(b"Sitemap:") == 1
+                assert f"Sitemap: {base}/sitemap.xml".encode() in robots
+                assert b"Disallow: /api/" in robots
+                assert get("/images/index.html")[0] == get("/images/")[0]
                 assert b"Archiving is not deletion" in get("/privacy/")[0]
                 assert b"30 days after it is created" in get("/privacy/")[0]
 

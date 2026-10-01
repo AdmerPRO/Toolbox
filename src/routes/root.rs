@@ -3,14 +3,94 @@ use tracing::info;
 
 pub async fn root_handler() -> Result<Html<String>, StatusCode> {
     info!("Main site handler");
-    tokio::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/frontend/root/index.html"
-    ))
-    .await
-    .map(Html)
-    .map_err(|error| {
-        tracing::error!(%error, "Cannot read home page");
+    page_handler("root").await
+}
+
+pub fn site_url() -> Result<String, StatusCode> {
+    let value = std::env::var("SITE_URL").unwrap_or_else(|_| "https://tools.admerpro.pl".into());
+    validate_site_url(&value).map_err(|message| {
+        tracing::error!(%message, "Invalid SITE_URL configuration");
         StatusCode::INTERNAL_SERVER_ERROR
     })
+}
+
+fn validate_site_url(value: &str) -> Result<String, &'static str> {
+    let url = reqwest::Url::parse(value).map_err(|_| "Use an absolute HTTP or HTTPS origin")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return Err(
+            "SITE_URL must be an HTTP or HTTPS origin without credentials, a path, query, or fragment",
+        );
+    }
+    Ok(url.as_str().trim_end_matches('/').to_owned())
+}
+
+pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
+    let path = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/frontend"))
+        .join(page)
+        .join("index.html");
+    let html = tokio::fs::read_to_string(path).await.map_err(|error| {
+        tracing::error!(%error, "Cannot read page");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(Html(
+        html.replace("https://tools.admerpro.pl", &site_url()?),
+    ))
+}
+
+pub async fn sitemap_handler()
+-> Result<([(axum::http::HeaderName, &'static str); 1], String), StatusCode> {
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/xml; charset=utf-8",
+        )],
+        include_str!("../../frontend/sitemap.xml")
+            .replace("https://tools.admerpro.pl", &site_url()?),
+    ))
+}
+
+pub async fn robots_handler()
+-> Result<([(axum::http::HeaderName, &'static str); 1], String), StatusCode> {
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        include_str!("../../frontend/robots.txt")
+            .replace("https://tools.admerpro.pl", &site_url()?),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_and_normalizes_public_origin() {
+        assert_eq!(
+            validate_site_url("https://example.org/").unwrap(),
+            "https://example.org"
+        );
+        assert_eq!(
+            validate_site_url("http://localhost:8080").unwrap(),
+            "http://localhost:8080"
+        );
+        for value in [
+            "/relative",
+            "ftp://example.org",
+            "https://user:password@example.org",
+            "https://example.org/path",
+            "https://example.org/?query=1",
+            "https://example.org/#fragment",
+        ] {
+            assert!(validate_site_url(value).is_err(), "{value}");
+        }
+    }
 }

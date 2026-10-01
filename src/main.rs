@@ -40,7 +40,16 @@ async fn main() -> Result<()> {
 
     let bind_address = format!("{}:{}", host, port);
 
-    let app = Router::new()
+    // Fail early if the canonical origin is misconfigured.
+    root::site_url().map_err(|_| anyhow::anyhow!("Invalid SITE_URL configuration"))?;
+    let mut app = Router::new()
+        .route("/sitemap.xml", get(root::sitemap_handler))
+        .route("/robots.txt", get(root::robots_handler))
+        .route(
+            "/resize/",
+            get(|| async { root::page_handler("resize").await }),
+        )
+        .route("/mute/", get(|| async { root::page_handler("mute").await }))
         .route(
             "/api/convert/resize",
             post(api::media::resize_handler)
@@ -65,26 +74,17 @@ async fn main() -> Result<()> {
             "/api/files/{date}/{filename}",
             get(storage::download_handler),
         )
-        .route_service(
+        .route(
             "/images/",
-            ServeFile::new(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend/images/index.html"
-            )),
+            get(|| async { root::page_handler("images").await }),
         )
-        .route_service(
+        .route(
             "/mp4tomp3/",
-            ServeFile::new(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend/mp4tomp3/index.html"
-            )),
+            get(|| async { root::page_handler("mp4tomp3").await }),
         )
-        .route_service(
+        .route(
             "/privacy/",
-            ServeFile::new(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend/privacy/index.html"
-            )),
+            get(|| async { root::page_handler("privacy").await }),
         )
         .route("/", get(root::root_handler))
         .route_service(
@@ -94,20 +94,14 @@ async fn main() -> Result<()> {
                 "/frontend/root/style.css"
             )),
         )
-        .route_service(
+        .route(
             "/youtubemp4/",
-            ServeFile::new(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend/youtubemp4/index.html"
-            )),
+            get(|| async { root::page_handler("youtubemp4").await }),
         )
         .route("/api/healthcheck", get(healthcheck::healthcheck_handler))
-        .route_service(
+        .route(
             "/youtubemp3/",
-            ServeFile::new(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend/youtubemp3/index.html"
-            )),
+            get(|| async { root::page_handler("youtubemp3").await }),
         )
         .route(
             "/youtubemp3",
@@ -138,6 +132,22 @@ async fn main() -> Result<()> {
             "/frontend"
         )))
         .layer(TraceLayer::new_for_http());
+
+    for (page, destination) in [
+        ("root", "/"),
+        ("images", "/images/"),
+        ("resize", "/resize/"),
+        ("mp4tomp3", "/mp4tomp3/"),
+        ("mute", "/mute/"),
+        ("youtubemp4", "/youtubemp4/"),
+        ("youtubemp3", "/youtubemp3/"),
+        ("privacy", "/privacy/"),
+    ] {
+        app = app.route(
+            &format!("/{page}/index.html"),
+            get(move || async move { axum::response::Redirect::permanent(destination) }),
+        );
+    }
 
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
