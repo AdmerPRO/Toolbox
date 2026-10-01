@@ -1,4 +1,27 @@
-use std::{path::PathBuf, process::Stdio};
+use std::{
+    path::PathBuf,
+    process::{Output, Stdio},
+    time::Duration,
+};
+
+static DOWNLOAD_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(3);
+
+async fn run(command: &mut Command, seconds: u64) -> std::io::Result<Output> {
+    tokio::time::timeout(Duration::from_secs(seconds), command.output())
+        .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "Download process timed out")
+        })?
+}
+
+fn download_slot() -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, String)> {
+    DOWNLOAD_SLOTS.try_acquire().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "The server is busy. Please try again shortly.".into(),
+        )
+    })
+}
 
 use axum::{
     Json,
@@ -6,8 +29,6 @@ use axum::{
     http::{StatusCode, header},
     response::Response,
 };
-use rand::RngExt;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::{fs, process::Command};
 use tokio_util::io::ReaderStream;
@@ -55,22 +76,29 @@ pub async fn youtube_info_handler(
         return Err(bad_request("Provide a valid YouTube video link."));
     }
 
-    let output = Command::new("yt-dlp")
-        .args([
-            "--dump-single-json",
-            "--no-playlist",
-            "--skip-download",
-            "--",
-        ])
-        .arg(request.url.trim())
-        .output()
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "yt-dlp is not installed on the server.".into(),
-            )
-        })?;
+    let _slot = download_slot()?;
+    let output = run(
+        Command::new("yt-dlp")
+            .kill_on_drop(true)
+            .args([
+                "--ignore-config",
+                "--socket-timeout",
+                "30",
+                "--dump-single-json",
+                "--no-playlist",
+                "--skip-download",
+                "--",
+            ])
+            .arg(request.url.trim()),
+        90,
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "yt-dlp is not installed on the server.".into(),
+        )
+    })?;
 
     if !output.status.success() {
         return Err(bad_request(
@@ -85,7 +113,10 @@ pub async fn youtube_info_handler(
         )
     })?;
 
-    let title = video["title"].as_str().unwrap_or("YouTube video").to_owned();
+    let title = video["title"]
+        .as_str()
+        .unwrap_or("YouTube video")
+        .to_owned();
     let thumbnail = video["thumbnail"].as_str().map(str::to_owned);
     let mut qualities = video["formats"]
         .as_array()
@@ -101,11 +132,7 @@ pub async fn youtube_info_handler(
 
     qualities.sort_unstable();
     qualities.dedup();
-    qualities.retain(|quality| *quality <= 2160);
-
-    if qualities.is_empty() {
-        return Err(bad_request("No MP4 versions were found for this video."));
-    }
+    qualities.retain(|quality| (144..=2160).contains(quality));
 
     Ok(Json(YoutubeInfo {
         title,
@@ -125,6 +152,7 @@ pub async fn youtube_download_handler(
         return Err(bad_request("Choose a valid video quality."));
     }
 
+    let _slot = download_slot()?;
     let output_path = download_youtube_mp4(request.url.trim(), request.quality)
         .await
         .map_err(|error| {
@@ -156,55 +184,29 @@ pub async fn download_youtube_mp4(
 
     fs::create_dir_all(&output_dir).await?;
 
-    // Losowa liczba od 1 do 2_147_483_646
-    let id: u32 = rand::rng().random_range(1..=2_147_483_646);
-
-    // Retrieve the video title before downloading.
-    let title_output = Command::new("yt-dlp")
-        .arg("--get-title")
-        .arg("--")
-        .arg(url)
-        .output()
-        .await?;
-
-    if !title_output.status.success() {
-        let error = String::from_utf8_lossy(&title_output.stderr);
-
-        return Err(format!("Could not retrieve the video title:\n{}", error).into());
-    }
-
-    let title = String::from_utf8_lossy(&title_output.stdout)
-        .trim()
-        .to_string();
-
-    // Usuwamy znaki specjalne
-    let re = Regex::new(r#"[^a-zA-Z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ_-]+"#)?;
-
-    let clean_title = re.replace_all(&title, "-").trim_matches('-').to_string();
-
-    // 67 -> 0000000067
-    let filename = format!("{:010}-{}.mp4", id, clean_title);
-
+    let filename = format!("{}.mp4", uuid::Uuid::new_v4());
     let output_path = output_dir.join(&filename);
-
     let quality_selector = format!(
-        "bestvideo[height<={}] + bestaudio/best[height<={}]",
-        quality, quality
+        "bestvideo[ext=mp4][height<={quality}]+bestaudio[ext=m4a]/best[ext=mp4][height<={quality}]"
     );
 
-    let output = Command::new("yt-dlp")
-        .arg("-f")
-        .arg(&quality_selector)
-        .arg("--merge-output-format")
-        .arg("mp4")
-        .arg("-o")
-        .arg(&output_path)
-        .arg("--")
-        .arg(url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await?;
+    let output = run(
+        Command::new("yt-dlp")
+            .kill_on_drop(true)
+            .args(["--ignore-config", "--no-playlist", "--socket-timeout", "30"])
+            .arg("-f")
+            .arg(&quality_selector)
+            .arg("--merge-output-format")
+            .arg("mp4")
+            .arg("-o")
+            .arg(&output_path)
+            .arg("--")
+            .arg(url)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+        1800,
+    )
+    .await?;
 
     if !output.status.success() {
         let error = String::from_utf8_lossy(&output.stderr);
@@ -212,23 +214,31 @@ pub async fn download_youtube_mp4(
         return Err(format!("yt-dlp error:\n{}", error).into());
     }
 
+    if !fs::try_exists(&output_path).await? {
+        return Err("The downloaded file was not created.".into());
+    }
     Ok(output_path)
 }
 
 pub async fn download_file_handler(
     axum::extract::Path(filename): axum::extract::Path<String>,
 ) -> Result<Response, StatusCode> {
-    let path = PathBuf::from("storage/ytmp4").join(&filename);
+    let (id, extension) = filename.rsplit_once('.').ok_or(StatusCode::BAD_REQUEST)?;
+    if uuid::Uuid::parse_str(id).is_err() || !matches!(extension, "mp4" | "mp3") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let directory = if extension == "mp3" {
+        "storage/ytmp3"
+    } else {
+        "storage/ytmp4"
+    };
+    let path = PathBuf::from(directory).join(&filename);
 
     info!(
         endpoint = "/api/youtube/file",
         filename = %filename,
         "File requested"
     );
-
-    if !path.exists() {
-        return Err(StatusCode::NOT_FOUND);
-    }
 
     let file = fs::File::open(&path)
         .await
@@ -245,7 +255,14 @@ pub async fn download_file_handler(
 
     let response = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "video/mp4")
+        .header(
+            header::CONTENT_TYPE,
+            if extension == "mp3" {
+                "audio/mpeg"
+            } else {
+                "video/mp4"
+            },
+        )
         .header(header::CONTENT_LENGTH, metadata.len())
         .header(
             header::CONTENT_DISPOSITION,
@@ -255,4 +272,107 @@ pub async fn download_file_handler(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(response)
+}
+
+#[derive(Deserialize)]
+pub struct YoutubeAudioRequest {
+    pub url: String,
+    pub quality: u32,
+}
+
+pub async fn youtube_mp3_handler(
+    Json(request): Json<YoutubeAudioRequest>,
+) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
+    if !is_youtube_url(&request.url) {
+        return Err(bad_request("Provide a valid YouTube video link."));
+    }
+    if !matches!(request.quality, 128 | 192 | 256 | 320) {
+        return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
+    }
+    let _slot = download_slot()?;
+    let directory = PathBuf::from("storage/ytmp3");
+    fs::create_dir_all(&directory).await.map_err(|error| {
+        tracing::error!(%error, "Cannot create audio directory");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Could not prepare audio storage.".into(),
+        )
+    })?;
+    let filename = format!("{}.mp3", uuid::Uuid::new_v4());
+    let path = directory.join(&filename);
+    let output = run(
+        Command::new("yt-dlp")
+            .kill_on_drop(true)
+            .args([
+                "--ignore-config",
+                "--no-playlist",
+                "--socket-timeout",
+                "30",
+                "-f",
+                "bestaudio/best",
+                "--extract-audio",
+                "--audio-format",
+                "mp3",
+                "--audio-quality",
+            ])
+            .arg(format!("{}K", request.quality))
+            .arg("-o")
+            .arg(&path)
+            .arg("--")
+            .arg(request.url.trim()),
+        1800,
+    )
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "Cannot start yt-dlp");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "yt-dlp is not available on the server.".into(),
+        )
+    })?;
+    if !output.status.success() || !fs::try_exists(&path).await.unwrap_or(false) {
+        tracing::error!(stderr = %String::from_utf8_lossy(&output.stderr), "Audio download failed");
+        return Err((StatusCode::INTERNAL_SERVER_ERROR,
+            "Audio download failed. Check that yt-dlp and FFmpeg are installed and the video is available.".into()));
+    }
+    Ok(Json(YoutubeDownload {
+        download_url: format!("/api/youtube/file/{filename}"),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn youtube_links_only() {
+        assert!(is_youtube_url("https://www.youtube.com/watch?v=abc"));
+        assert!(is_youtube_url(" https://youtu.be/abc "));
+        assert!(!is_youtube_url("https://youtube.com.evil.example/video"));
+        assert!(!is_youtube_url("file:///etc/passwd"));
+    }
+
+    #[tokio::test]
+    async fn reject_path_traversal() {
+        for name in ["../secret.mp4", "..\\secret.mp3", "invalid.mp4", "test.txt"] {
+            assert_eq!(
+                download_file_handler(axum::extract::Path(name.into()))
+                    .await
+                    .unwrap_err(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn reject_invalid_audio_quality() {
+        let error = youtube_mp3_handler(Json(YoutubeAudioRequest {
+            url: "https://youtu.be/abc".into(),
+            quality: 999,
+        }))
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    }
 }
