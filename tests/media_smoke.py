@@ -9,6 +9,7 @@ import json
 import os
 import re
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -25,6 +26,7 @@ def main():
     binary = parser.parse_args().binary.resolve()
     with tempfile.TemporaryDirectory(prefix="toolbox-smoke-") as working:
         root = Path(working)
+        shutil.copytree(Path(__file__).resolve().parents[1] / "frontend", root / "frontend")
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]

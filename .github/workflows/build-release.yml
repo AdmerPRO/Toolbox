@@ -1,0 +1,98 @@
+name: Build release packages
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      nightly:
+        type: boolean
+        required: true
+      draft:
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  checks:
+    uses: ./.github/workflows/rust.yml
+
+  build:
+    needs: checks
+    name: Package (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+          # Generic ARM64 instructions support Pi 4B with a 64-bit OS.
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check target
+        run: cargo check --locked --all-targets --all-features --target ${{ matrix.target }}
+      - name: Test target
+        run: cargo test --locked --all-targets --target ${{ matrix.target }}
+      - name: Build optimized binary
+        run: cargo build --locked --release --target ${{ matrix.target }}
+      - name: Package binary and frontend
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: python scripts/release.py package
+      - name: Verify extracted package on native runner
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: python scripts/release.py verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.nightly && 14 || 90 }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: dist
+      - name: Publish release with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_NIGHTLY: ${{ inputs.nightly }}
+          RELEASE_DRAFT: ${{ inputs.draft }}
+        run: python scripts/release.py publish

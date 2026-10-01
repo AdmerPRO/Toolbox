@@ -32,7 +32,7 @@ fn validate_site_url(value: &str) -> Result<String, &'static str> {
 }
 
 pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
-    let path = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/frontend"))
+    let path = std::path::Path::new("frontend")
         .join(page)
         .join("index.html");
     let html = tokio::fs::read_to_string(path).await.map_err(|error| {

@@ -87,13 +87,7 @@ async fn main() -> Result<()> {
             get(|| async { root::page_handler("privacy").await }),
         )
         .route("/", get(root::root_handler))
-        .route_service(
-            "/style.css",
-            ServeFile::new(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend/root/style.css"
-            )),
-        )
+        .route_service("/style.css", ServeFile::new("frontend/root/style.css"))
         .route(
             "/youtubemp4/",
             get(|| async { root::page_handler("youtubemp4").await }),
@@ -127,10 +121,7 @@ async fn main() -> Result<()> {
             "/api/youtube/file/{filename}",
             get(download_youtube_mp4::download_file_handler),
         )
-        .fallback_service(ServeDir::new(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/frontend"
-        )))
+        .fallback_service(ServeDir::new("frontend"))
         .layer(TraceLayer::new_for_http());
 
     for (page, destination) in [

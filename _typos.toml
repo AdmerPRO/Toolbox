@@ -1,0 +1,8 @@
+[files]
+extend-exclude = ["Cargo.lock", "LICENSE", "target/**", "dist/**", "storage/**"]
+
+[default.extend-words]
+admersite = "admersite"
+Admer = "Admer"
+AdmerPRO = "AdmerPRO"
+ytmp = "ytmp"

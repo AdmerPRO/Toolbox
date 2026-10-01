@@ -1,5 +1,7 @@
 # Target directory
 /target
+/dist
+__pycache__/
 
 # .env
 .env

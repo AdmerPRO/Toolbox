@@ -1,0 +1,37 @@
+name: Nightly release
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Generate nightly tag
+        id: tag
+        run: python scripts/release.py prepare --nightly
+
+  release:
+    needs: prepare
+    uses: ./.github/workflows/build-release.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      nightly: true
+      draft: false

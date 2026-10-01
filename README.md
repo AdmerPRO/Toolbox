@@ -69,7 +69,45 @@ Download only content you own or have permission to download.
 GitHub Actions builds and tests the project on Windows, macOS, Ubuntu, and
 Ubuntu ARM64 on pushes and pull requests targeting `master`. The workflow can
 also be started manually. Formatting, Clippy, and JavaScript syntax checks run
-in a separate Ubuntu job.
+in a separate Ubuntu job, together with typos and release packaging tests.
+`cargo check --locked --all-targets --all-features` also runs on each platform.
+
+## Nightly and full releases
+
+The **Nightly release** workflow runs daily at 02:17 UTC and can also be
+started manually. Each successful run creates a new GitHub prerelease with
+an immutable `nightly-YYYYMMDD-RUN_ID-ATTEMPT` tag. Nightly describes the build
+schedule; both nightly and full releases use stable Rust.
+
+To generate a full release, open **Actions > Full release > Run workflow**,
+select the source branch, and enter a tag matching the package version in
+`Cargo.toml`, such as `v0.1.0`. Update the package version and lockfile before
+releasing a new version. The workflow creates a draft by default; disable the
+draft option to publish immediately. Existing releases are never overwritten.
+Repository Actions must allow `GITHUB_TOKEN` to write repository contents.
+
+Both workflows first run the shared CI checks and then build five native
+packages: Windows x64, Ubuntu x64, macOS Intel, macOS Apple Silicon, and Linux
+ARM64 for Raspberry Pi 4B. Linux builds use Ubuntu 22.04 and require glibc
+2.35 or newer. Pi 4B needs a 64-bit OS such as Raspberry Pi OS Bookworm or
+Ubuntu 22.04 or newer; 32-bit Raspberry Pi OS is not supported. ARM64 tests
+run on GitHub-hosted runners and do not verify physical Pi hardware.
+
+Release builds use optimization level 3, fat LTO, one codegen unit, stripped
+symbols, and panic abort. They use generic CPU targets rather than the build
+machine's CPU features. Windows packages are ZIP files; Linux/macOS packages
+are tar.gz files. Each includes the executable, frontend, license, README,
+configuration example, running instructions, and build metadata. SHA256SUMS.txt
+is attached to the release. Workflow artifacts also include individual
+checksums and remain available for 14 days for nightly or 90 days for full
+releases; published GitHub release assets are separate from this retention.
+
+Extract the entire package and run the executable **from its extracted
+folder** so it can find `frontend/`. FFmpeg, ffprobe, yt-dlp, and any required
+JavaScript runtime must be installed separately. Every platform verifies the
+extracted package's checksum and starts the packaged server to check its
+pages and static assets before publication. Publication requires all five
+packages to succeed. macOS binaries are not signed or notarized.
 
 The ARM64 job checks compatibility with Raspberry Pi running a 64-bit Linux
 OS. It runs on a GitHub-hosted Ubuntu runner, not physical Raspberry Pi
@@ -78,7 +116,10 @@ hardware, and does not cover 32-bit Raspberry Pi OS or external media tools.
 ```sh
 cargo fmt --check
 cargo test
+cargo check --locked --all-targets --all-features
 cargo clippy --all-targets -- -D warnings
+typos
+python -m unittest discover -s tests -p "test_release*.py"
 node --check frontend/shared/downloader.js
 node --check frontend/shared/converter.js
 cargo build --locked
