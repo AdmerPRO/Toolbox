@@ -8,7 +8,9 @@ The project is currently **under heavy development**.
 
 * YouTube MP4 downloads with a resolution selector, up to 2160p
 * YouTube MP3 audio downloads at 128, 192, 256 or 320 kbps
-* Image conversion between PNG, JPG, JPEG, WebP, and ICO
+* Image conversion between PNG, JPG, JPEG, WebP, ICO, BMP, and TIFF
+* Image resizing with preserved aspect ratio
+* MP4 audio removal without video re-encoding
 * MP3 extraction from uploaded MP4 videos at 192 kbps
 * Seven-day file availability with automatic ZIP archiving by date
 * Responsive interface with an animated red gradient and reduced-motion support
@@ -27,7 +29,7 @@ cargo run
 Open http://127.0.0.1:3000. Optionally set `ADDRESS` and `PORT` in `.env`.
 Run commands from the project root so the frontend and storage paths resolve.
 
-Pages: `/`, `/youtubemp4/`, `/youtubemp3/`, `/images/`, `/mp4tomp3/`, `/privacy/`.
+Pages: `/`, `/youtubemp4/`, `/youtubemp3/`, `/images/`, `/mp4tomp3/`, `/resize/`, `/mute/`, `/privacy/`.
 FFmpeg is also required for uploaded MP4 audio extraction. Image conversion
 uses the Rust `image` library and does not require an external image tool.
 Images are limited to 20 MiB and 4096 x 4096 pixels; MP4 uploads to 200 MiB.
@@ -45,8 +47,9 @@ are compressed into ZIP archives under `storage/archives/DDMMYYYY/`.
 Multiple archives may exist for one day. Archives are finalized and checked
 before source files are removed; failures are logged and retried.
 Older `storage/ytmp4` and `storage/ytmp3` files are included in this process.
-Archives are not served by the website and have no automatic deletion period.
-The operator must remove them when no longer needed. Archiving does not erase
+Archives are not served by the website and are automatically deleted 30 days
+after archive creation, checked at startup and hourly. Deletion failures are
+logged and retried; downtime can extend retention. Archiving does not erase
 data. Keep the storage directory outside publicly served directories and
 provide users with an operator contact channel for privacy/deletion requests.
 The [privacy policy](frontend/privacy/index.html) explains this behavior.

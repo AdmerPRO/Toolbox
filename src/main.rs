@@ -42,6 +42,16 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route(
+            "/api/convert/resize",
+            post(api::media::resize_handler)
+                .layer(DefaultBodyLimit::max(api::media::IMAGE_LIMIT + 64 * 1024)),
+        )
+        .route(
+            "/api/convert/mute",
+            post(api::media::mute_handler)
+                .layer(DefaultBodyLimit::max(api::media::VIDEO_LIMIT + 64 * 1024)),
+        )
+        .route(
             "/api/convert/image",
             post(api::media::image_handler)
                 .layer(DefaultBodyLimit::max(api::media::IMAGE_LIMIT + 64 * 1024)),

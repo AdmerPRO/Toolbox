@@ -15,6 +15,7 @@ use std::{
 use tokio_util::io::ReaderStream;
 
 pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+pub const ARCHIVE_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 pub fn valid_date(date: &str) -> bool {
     date.len() == 8
@@ -40,7 +41,10 @@ pub fn publish(work: &Path, output: &str) -> Result<String> {
 fn valid_filename(filename: &str) -> bool {
     filename.rsplit_once('.').is_some_and(|(id, ext)| {
         uuid::Uuid::parse_str(id).is_ok()
-            && matches!(ext, "png" | "jpg" | "jpeg" | "webp" | "ico" | "mp3" | "mp4")
+            && matches!(
+                ext,
+                "png" | "jpg" | "jpeg" | "webp" | "ico" | "bmp" | "tif" | "tiff" | "mp3" | "mp4"
+            )
     })
 }
 
@@ -79,6 +83,8 @@ pub async fn download_handler(
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
         _ => "image/x-icon",
     };
     Response::builder()
@@ -106,7 +112,10 @@ pub fn start_archiver() {
             {
                 Ok(Ok(())) => {}
                 result => {
-                    tracing::error!(?result, "Storage archiving failed; will retry in one hour")
+                    tracing::error!(
+                        ?result,
+                        "Storage maintenance failed; will retry in one hour"
+                    )
                 }
             }
         }
@@ -114,6 +123,7 @@ pub fn start_archiver() {
 }
 
 fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
+    delete_expired_archives(root, now)?;
     let mut groups: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     // Also archive files produced by older versions of the application.
     for area in ["active", "ytmp3", "ytmp4"] {
@@ -192,6 +202,42 @@ fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
     Ok(())
 }
 
+fn delete_expired_archives(root: &Path, now: SystemTime) -> Result<()> {
+    let archives = root.join("archives");
+    if !archives.exists() {
+        return Ok(());
+    }
+    for day in fs::read_dir(&archives)? {
+        let day = day?;
+        if !day.file_type()?.is_dir() || !valid_date(&day.file_name().to_string_lossy()) {
+            continue;
+        }
+        for entry in fs::read_dir(day.path())? {
+            let entry = entry?;
+            let path = entry.path();
+            // Only finalized ZIP files inside date folders are eligible.
+            if !entry.file_type()?.is_file()
+                || path.extension().and_then(|ext| ext.to_str()) != Some("zip")
+            {
+                continue;
+            }
+            if now
+                .duration_since(entry.metadata()?.modified()?)
+                .unwrap_or_default()
+                >= ARCHIVE_RETENTION
+            {
+                fs::remove_file(&path)?;
+                tracing::info!(archive = %path.display(), "Expired archive deleted");
+            }
+        }
+        // Keep non-empty folders, including folders with unfinished work.
+        if fs::read_dir(day.path())?.next().is_none() {
+            fs::remove_dir(day.path())?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +304,37 @@ mod tests {
         fs::write(root.path().join("archives"), b"blocked")?;
         assert!(archive_expired(root.path(), now).is_err());
         assert_eq!(fs::read(source)?, b"audio bytes");
+        Ok(())
+    }
+
+    #[test]
+    fn deletes_archives_at_thirty_days_and_preserves_other_files() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let day = root.path().join("archives/01102026");
+        fs::create_dir_all(&day)?;
+        let expired = day.join("expired.zip");
+        let recent = day.join("recent.zip");
+        let temporary = day.join("unfinished.tmp");
+        let now = SystemTime::now();
+        for path in [&expired, &recent, &temporary] {
+            fs::write(path, b"test data")?;
+        }
+        for path in [&expired, &temporary] {
+            fs::File::options()
+                .write(true)
+                .open(path)?
+                .set_times(fs::FileTimes::new().set_modified(now - ARCHIVE_RETENTION))?;
+        }
+        fs::File::options().write(true).open(&recent)?.set_times(
+            fs::FileTimes::new().set_modified(now - ARCHIVE_RETENTION + Duration::from_secs(1)),
+        )?;
+        delete_expired_archives(root.path(), now)?;
+        assert!(!expired.exists());
+        assert!(recent.exists());
+        assert!(temporary.exists());
+        delete_expired_archives(root.path(), now + Duration::from_secs(1))?;
+        assert!(!recent.exists());
+        assert!(temporary.exists());
         Ok(())
     }
 }

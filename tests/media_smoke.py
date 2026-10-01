@@ -68,14 +68,15 @@ def main():
                         assert error.code == expected, (error.code, error.read())
                         return None
 
-                for page in ["/", "/images/", "/mp4tomp3/", "/privacy/"]:
+                for page in ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/privacy/"]:
                     html, _ = get(page)
                     assert b"Privacy" in html
                 assert b"Archiving is not deletion" in get("/privacy/")[0]
+                assert b"30 days after it is created" in get("/privacy/")[0]
 
                 image = root / "sample.png"
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x280", "-frames:v", "1", str(image)], check=True)
-                for extension, mime in [("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("webp", "image/webp"), ("ico", "image/x-icon")]:
+                for extension, mime in [("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("webp", "image/webp"), ("ico", "image/x-icon"), ("bmp", "image/bmp"), ("tiff", "image/tiff")]:
                     url = upload("/api/convert/image", "sample.png", image.read_bytes(), extension)
                     content, headers = get(url)
                     assert headers["Content-Type"] == mime
@@ -87,6 +88,14 @@ def main():
                     roundtrip = upload("/api/convert/image", result.name, content, "png")
                     assert get(roundtrip)[0].startswith(b"\x89PNG")
 
+                resized = upload("/api/convert/resize?width=80&height=80", "sample.png", image.read_bytes(), "png")
+                resized_file = root / "resized.png"
+                resized_file.write_bytes(get(resized)[0])
+                dimensions = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "json", str(resized_file)]))["streams"][0]
+                assert dimensions == {"width": 80, "height": 70}, dimensions
+                upload("/api/convert/resize?width=0&height=80", "sample.png", image.read_bytes(), "png", 400)
+                upload("/api/convert/resize?width=4097&height=80", "sample.png", image.read_bytes(), "png", 400)
+
                 video = root / "sample.mp4"
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "mpeg4", "-c:a", "aac", "-shortest", str(video)], check=True)
                 url = upload("/api/convert/audio", "sample.mp4", video.read_bytes())
@@ -95,6 +104,13 @@ def main():
                 audio = root / "result.mp3"
                 audio.write_bytes(content)
                 subprocess.run(["ffmpeg", "-v", "error", "-i", str(audio), "-f", "null", "-"], check=True)
+                muted_url = upload("/api/convert/mute", "sample.mp4", video.read_bytes())
+                muted = root / "muted.mp4"
+                muted_content, muted_headers = get(muted_url)
+                assert muted_headers["Content-Type"] == "video/mp4"
+                muted.write_bytes(muted_content)
+                streams = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", str(muted)]))["streams"]
+                assert streams == [{"codec_type": "video"}], streams
                 date, filename = url.rsplit("/", 2)[1:]
                 job = root / "storage" / "active" / date / filename.rsplit(".", 1)[0]
                 assert (job / "source.mp4").read_bytes() == video.read_bytes()
@@ -111,11 +127,12 @@ def main():
                 upload("/api/convert/image", "sample.png", b"", "png", 400)
                 upload("/api/convert/image", "large.png", b"x" * (20 * 1024 * 1024 + 1), "png", 413)
                 upload("/api/convert/audio", "fake.mp4", b"invalid video", expected=400)
+                upload("/api/convert/mute", "fake.mp4", b"invalid video", expected=400)
                 silent = root / "silent.mp4"
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-an", "-c:v", "mpeg4", str(silent)], check=True)
                 upload("/api/convert/audio", "silent.mp4", silent.read_bytes(), expected=400)
                 assert not list((root / "storage" / "staging").iterdir()), "Working files leaked"
-                print("Media smoke checks passed: all image formats, MP4 audio extraction, expiry, and invalid uploads.")
+                print("Media smoke checks passed: image formats, resizing, MP4 extraction/muting, expiry, and invalid uploads.")
             finally:
                 server.terminate()
                 try:
