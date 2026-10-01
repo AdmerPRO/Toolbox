@@ -1,71 +1,71 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>YouTube to MP4 | Tool Box</title>
-<link rel="stylesheet" href="/root/style.css">
-</head>
-<body data-format="mp4">
-<div class="shell">
-<header class="site-header">
-<a class="brand" href="/" aria-label="Tool Box home">
-<span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a>
-<nav aria-label="Main navigation">
-<a href="/">All tools</a>
-<a href="/youtubemp4/">Video</a>
-<a href="/youtubemp3/">Audio</a>
-</nav>
-</header>
-<main class="downloader">
-<a class="back-link" href="/">&#8592; Back to all tools</a>
-<h1>YouTube to <span>MP4</span>
-</h1>
-<p class="lead">Your favorite videos, ready for offline viewing. Paste a link to get started.</p>
-<div class="panel">
-<nav class="mode-tabs" aria-label="Download format">
-<a href="/youtubemp4/" aria-current="page">&#9654; Video / MP4</a>
-<a href="/youtubemp3/">&#9835; Audio / MP3</a>
-</nav>
-<form id="video-form">
-<label for="youtube-url">YouTube video link</label>
-<div class="input-row">
-<input id="youtube-url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" required>
-<button type="submit">Find video &#8594;</button>
-</div>
-<p class="hint">Supports YouTube video links, Shorts, and youtu.be links.</p>
-</form>
-<p id="status" class="status" role="status" aria-live="polite">
-</p>
-<section id="video-result" class="video-result" aria-label="Video details" hidden>
-<img id="thumbnail" alt="Video thumbnail" referrerpolicy="no-referrer">
-<div class="video-details">
-<h2 id="video-title">
-</h2>
-<label for="quality">Video resolution</label>
-<select id="quality">
-</select>
-<button id="download-button" type="button">Download MP4 &#8595;</button>
-</div>
-</section>
-<a id="download-link" class="download-link" hidden>Save MP4 file &#8595;</a>
-</div>
-<div class="steps">
-<span>
-<b>01</b> Paste a YouTube link</span>
-<span>
-<b>02</b> Choose your quality</span>
-<span>
-<b>03</b> Download your video</span>
-</div>
-<p class="hint">Download content you own or have permission to download. Available resolutions depend on the original video.</p>
-</main>
-<footer>
-<span>Made for the everyday. Free &amp; ad-free.</span>
-<a href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
-</footer>
-</div>
-<script src="/shared/downloader.js">
-</script>
-</body>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>YouTube to MP4 | Tool Box</title>
+		<link rel="stylesheet" href="../root/style.css">
+	</head>
+	<body data-format="mp4">
+		<div class="shell">
+			<header class="site-header">
+				<a class="brand" href="/" aria-label="Tool Box home">
+					<span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a>
+				<nav aria-label="Main navigation">
+					<a href="/">All tools</a>
+					<a href="/youtubemp4/">Video</a>
+					<a href="/youtubemp3/">Audio</a>
+				</nav>
+			</header>
+			<main class="downloader">
+				<a class="back-link" href="/">&#8592; Back to all tools</a>
+				<h1>YouTube to <span>MP4</span>
+				</h1>
+				<p class="lead">Your favorite videos, ready for offline viewing. Paste a link to get started.</p>
+				<div class="panel">
+					<nav class="mode-tabs" aria-label="Download format">
+						<a href="/youtubemp4/" aria-current="page">&#9654; Video / MP4</a>
+						<a href="/youtubemp3/">&#9835; Audio / MP3</a>
+					</nav>
+					<form id="video-form">
+						<label for="youtube-url">YouTube video link</label>
+						<div class="input-row">
+							<input id="youtube-url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" required>
+							<button type="submit">Find video &#8594;</button>
+						</div>
+						<p class="hint">Supports YouTube video links, Shorts, and youtu.be links.</p>
+					</form>
+					<p id="status" class="status" role="status" aria-live="polite">
+					</p>
+					<section id="video-result" class="video-result" aria-label="Video details" hidden>
+						<img id="thumbnail" alt="Video thumbnail" referrerpolicy="no-referrer">
+						<div class="video-details">
+							<h2 id="video-title">
+							</h2>
+							<label for="quality">Video resolution</label>
+							<select id="quality">
+							</select>
+							<button id="download-button" type="button">Download MP4 &#8595;</button>
+						</div>
+					</section>
+					<a id="download-link" class="download-link" hidden>Save MP4 file &#8595;</a>
+				</div>
+				<div class="steps">
+					<span>
+						<b>01</b> Paste a YouTube link</span>
+					<span>
+						<b>02</b> Choose your quality</span>
+					<span>
+						<b>03</b> Download your video</span>
+				</div>
+				<p class="hint">Download content you own or have permission to download. Available resolutions depend on the original video.</p>
+			</main>
+			<footer>
+				<span>Made for the everyday. Free &amp; ad-free.</span>
+				<a href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
+			</footer>
+		</div>
+		<script src="../shared/downloader.js">
+		</script>
+	</body>
 </html>

@@ -1,59 +1,73 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Simple, free YouTube video and audio tools. Download MP4 videos or MP3 audio.">
-<title>Tool Box | Little tools, big possibilities</title>
-<link rel="stylesheet" href="/root/style.css">
-</head>
-<body>
-<div class="shell">
-<header class="site-header">
-<a class="brand" href="/" aria-label="Tool Box home">
-<span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a>
-<nav aria-label="Main navigation">
-<a href="/">All tools</a>
-<a href="/youtubemp4/">Video</a>
-<a href="/youtubemp3/">Audio</a>
-</nav>
-</header>
-<main>
-<section class="hero">
-<div class="eyebrow">Your everyday media toolkit</div>
-<h1>Little tools.<br>
-<span>Big possibilities.</span>
-</h1>
-<p class="lead">Your favorite videos and audio, a little more accessible. Pick a tool, paste a link, and make it yours.</p>
-<div class="chips">
-<span class="chip">No sign-up</span>
-<span class="chip">Always free</span>
-<span class="chip">No advertisements</span>
-</div>
-</section>
-<section class="tools" aria-label="Available tools">
-<a class="tool-card" href="/youtubemp4/">
-<span class="tool-icon" aria-hidden="true">&#9654;</span>
-<span class="tag">VIDEO</span>
-<h2>YouTube to MP4</h2>
-<p>Save a video for later. Choose your resolution, up to 4K, and download it as an MP4.</p>
-<span class="card-link">Download a video <span aria-hidden="true">&#8599;</span>
-</span>
-</a>
-<a class="tool-card" href="/youtubemp3/">
-<span class="tool-icon" aria-hidden="true">&#9835;</span>
-<span class="tag">AUDIO</span>
-<h2>YouTube to MP3</h2>
-<p>Just the audio you need. Turn a YouTube video into an MP3, with quality up to 320 kbps.</p>
-<span class="card-link">Download audio <span aria-hidden="true">&#8599;</span>
-</span>
-</a>
-</section>
-</main>
-<footer>
-<span>Made for the everyday. Free &amp; ad-free.</span>
-<a href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
-</footer>
-</div>
-</body>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<meta name="description" content="Simple, free YouTube video and audio tools. Download MP4 videos or MP3 audio.">
+		<title>Toolbox - YouTube to MP4/MP3</title>
+		<link rel="stylesheet" href="../root/style.css">
+	</head>
+	<body>
+		<div class="shell">
+			<header class="site-header">
+				<a class="brand" href="/" aria-label="Tool Box home">
+					<span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a>
+				<nav aria-label="Main navigation">
+					<a href="/">All tools</a>
+					<a href="/youtubemp4/">Video</a>
+					<a href="/youtubemp3/">Audio</a>
+				</nav>
+			</header>
+			<main>
+				<section class="hero">
+					<div class="eyebrow">Toolkit for youtube and other media</div>
+					</h1>
+					<p class="lead">Pick a tool, paste a link, and download your favorite content.</p>
+					<div class="chips">
+						<span class="chip">No sign-up</span>
+						<span class="chip">Always free</span>
+						<span class="chip">No advertisements</span>
+					</div>
+				</section>
+				<section class="tools" aria-label="Available tools">
+					<a class="tool-card" href="/youtubemp4/">
+						<span class="tool-icon" aria-hidden="true">&#9654;</span>
+						<span class="tag">VIDEO</span>
+						<h2>YouTube to MP4</h2>
+						<p>Save a video for later. Choose your resolution, up to 4K, and download it as an MP4.</p>
+						<span class="card-link">Download a video <span aria-hidden="true">&#8599;</span>
+						</span>
+					</a>
+					<a class="tool-card" href="/youtubemp3/">
+						<span class="tool-icon" aria-hidden="true">&#9835;</span>
+						<span class="tag">AUDIO</span>
+						<h2>YouTube to MP3</h2>
+						<p>Just the audio you need. Turn a YouTube video into an MP3, with quality up to 320 kbps.</p>
+						<span class="card-link">Download audio <span aria-hidden="true">&#8599;</span>
+						</span>
+					</a>
+				</section>
+			</main>
+			<footer>
+				<span>Made for the everyday. Free &amp; ad-free.</span>
+				<a href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
+			</footer>
+		</div>
+		<dialog id="overlay" class="welcome-dialog" aria-labelledby="welcome-title">
+			<div class="popup">
+				<img src="../assets/good_cat_image.png" alt="A friendly cat" class="popup-image">
+				<div class="popup-content">
+					<p class="eyebrow">Welcome to Tool Box</p>
+					<h2 id="welcome-title">Cool tools for you!</h2>
+					<p>Our site will always be free and ad-free. No sign-up needed.</p>
+					<p>Thank you for using this website. Pick a tool and get started!</p>
+					<div class="popup-buttons">
+						<button id="closeBtn" type="button" autofocus>Thanks!</button>
+						<a class="popup-github" href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">GitHub (code) &#8599;</a>
+					</div>
+				</div>
+			</div>
+		</dialog>
+		<script src="../root/script.js" defer></script>
+	</body>
 </html>

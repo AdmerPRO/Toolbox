@@ -11,7 +11,10 @@ use axum::{
     routing::{get, post},
 };
 use std::env;
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::{
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -36,18 +39,27 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/", get(root::root_handler))
-        .route(
+        .route_service(
+            "/style.css",
+            ServeFile::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/frontend/root/style.css"
+            )),
+        )
+        .route_service(
             "/youtubemp4/",
-            get(|| async {
-                axum::response::Html(include_str!("../frontend/youtubemp4/index.html"))
-            }),
+            ServeFile::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/frontend/youtubemp4/index.html"
+            )),
         )
         .route("/api/healthcheck", get(healthcheck::healthcheck_handler))
-        .route(
+        .route_service(
             "/youtubemp3/",
-            get(|| async {
-                axum::response::Html(include_str!("../frontend/youtubemp3/index.html"))
-            }),
+            ServeFile::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/frontend/youtubemp3/index.html"
+            )),
         )
         .route(
             "/youtubemp3",
@@ -73,7 +85,10 @@ async fn main() -> Result<()> {
             "/api/youtube/file/{filename}",
             get(download_youtube_mp4::download_file_handler),
         )
-        .fallback_service(ServeDir::new("frontend"))
+        .fallback_service(ServeDir::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/frontend"
+        )))
         .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind(&bind_address)
