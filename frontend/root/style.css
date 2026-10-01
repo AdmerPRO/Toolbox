@@ -336,6 +336,25 @@ button:disabled {
     margin:13px 0 0;
 }
 
+.site-header { flex-wrap:wrap; }
+.brand { flex-shrink:0; }
+.main-nav { flex:1; flex-wrap:wrap; justify-content:flex-end; }
+.main-nav a { white-space:nowrap; }
+.main-nav a[aria-current=page] { color:var(--accent); background:#ff756918; }
+
+@media(max-width:640px) {
+    .main-nav {
+        flex-basis:100%;
+        flex-wrap:nowrap;
+        justify-content:flex-start;
+        overflow-x:auto;
+        padding:5px 0 10px;
+        scrollbar-width:thin;
+        scrollbar-color:var(--accent) transparent;
+    }
+    .main-nav a { flex-shrink:0; }
+}
+
 .hint a { color:var(--accent); text-decoration:underline; }
 #convert-form input[type=file],#convert-form select { width:100%; }
 #convert-form label:not(:first-child) { margin-top:22px; }
