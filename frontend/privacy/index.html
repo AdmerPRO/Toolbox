@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy policy | Tool Box</title>
+    <link rel="stylesheet" href="/root/style.css">
+</head>
+<body>
+    <div class="shell">
+        <header class="site-header"><a class="brand" href="/"><span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a><nav aria-label="Main navigation"><a href="/">All tools</a><a href="/privacy/" aria-current="page">Privacy</a></nav></header>
+        <main class="downloader policy">
+            <h1>Privacy <span>policy</span></h1>
+            <p class="lead">Last updated: 1 October 2026. This page explains how Tool Box handles files and related data.</p>
+            <section class="panel">
+                <h2>Files and processing</h2>
+                <p>When you use a converter, your original file is uploaded to this server to produce the requested image or audio file. Successful jobs store both the original and the result. YouTube tools send your submitted link to YouTube through yt-dlp and store the downloaded result on this server. Failed jobs use temporary working files that are normally removed when processing ends. An abrupt shutdown can leave temporary files on disk until the operator cleans them up.</p>
+                <h2>Seven-day availability and ZIP archives</h2>
+                <p>Stored files remain in active storage for 7 days. Download links stop working after that period. An automated task runs at server startup and once per hour to move expired files into ZIP archives. If the server is offline or archiving fails, files remain on disk until a successful retry.</p>
+                <p>Files are grouped by UTC date in folders named DDMMYYYY. For example, <code>01102026</code> means <time datetime="2026-10-01">01.10.2026</time>. Files from the same day share a date folder; multiple ZIP archives can be created for that day.</p>
+                <p><strong>Archiving is not deletion.</strong> ZIP archives contain uploaded originals and generated results and remain on the server until the operator removes them. No automatic archive deletion period is currently configured. The server operator can access stored files and archives. Archives are not offered for download through the website.</p>
+                <h2>Download links</h2>
+                <p>No account is required. Generated results have random download identifiers, but anyone with the full download link can retrieve the result during its seven-day availability. Keep your links private. Original uploads are not exposed through the download endpoint. Avoid uploading sensitive or confidential material.</p>
+                <h2>Cookies and request information</h2>
+                <p>The home page uses a cookie called <code>popup_seen_v2</code> for one day to remember that you have closed the welcome message. The application does not include advertising or analytics scripts. Server logging can record request details and errors, including requested file identifiers. Hosting infrastructure may also keep connection logs; their retention depends on the operator's configuration and is separate from the file policy above.</p>
+                <h2>External services</h2>
+                <p>YouTube tools contact YouTube to retrieve video information and media. Video thumbnails load from external image hosts, which receive your connection information when your browser requests them. Image conversion and uploaded MP4 audio extraction run on this server.</p>
+                <h2>Questions and deletion requests</h2>
+                <p>Contact the operator of the Tool Box server you are using for privacy questions or a request to delete stored data. Provide your download identifier privately so the operator can locate related originals, results, and archives. Do not post private files or download links in public GitHub issues.</p>
+            </section>
+        </main>
+        <footer><a href="/">Back to all tools</a><a href="/privacy/">Privacy policy</a></footer>
+    </div>
+</body>
+</html>

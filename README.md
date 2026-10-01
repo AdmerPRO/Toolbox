@@ -8,6 +8,9 @@ The project is currently **under heavy development**.
 
 * YouTube MP4 downloads with a resolution selector, up to 2160p
 * YouTube MP3 audio downloads at 128, 192, 256 or 320 kbps
+* Image conversion between PNG, JPG, JPEG, WebP, and ICO
+* MP3 extraction from uploaded MP4 videos at 192 kbps
+* Seven-day file availability with automatic ZIP archiving by date
 * Responsive interface with an animated red gradient and reduced-motion support
 
 ## Running locally
@@ -24,10 +27,33 @@ cargo run
 Open http://127.0.0.1:3000. Optionally set `ADDRESS` and `PORT` in `.env`.
 Run commands from the project root so the frontend and storage paths resolve.
 
-Pages: `/`, `/youtubemp4/`, `/youtubemp3/`.
-Downloads are stored under `storage/ytmp4` and `storage/ytmp3` using unique names.
-Stored files remain on disk until removed by the operator. At most three
-metadata/download processes run concurrently; downloads expire after 30 minutes.
+Pages: `/`, `/youtubemp4/`, `/youtubemp3/`, `/images/`, `/mp4tomp3/`, `/privacy/`.
+FFmpeg is also required for uploaded MP4 audio extraction. Image conversion
+uses the Rust `image` library and does not require an external image tool.
+Images are limited to 20 MiB and 4096 x 4096 pixels; MP4 uploads to 200 MiB.
+JPG/JPEG output replaces transparency with white; ICO output fits within
+256 x 256 pixels. Only the first image frame/icon or audio track is used.
+
+Successful jobs store their originals and results under
+`storage/active/DDMMYYYY/<random-id>/`. Dates use UTC: `01102026` means
+1 October 2026. Working files use `storage/staging` and are normally removed
+after unsuccessful processing. An abrupt shutdown may leave staging files
+that the operator must remove when no jobs are running.
+
+Download links expire after 7 days. At startup and every hour, expired files
+are compressed into ZIP archives under `storage/archives/DDMMYYYY/`.
+Multiple archives may exist for one day. Archives are finalized and checked
+before source files are removed; failures are logged and retried.
+Older `storage/ytmp4` and `storage/ytmp3` files are included in this process.
+Archives are not served by the website and have no automatic deletion period.
+The operator must remove them when no longer needed. Archiving does not erase
+data. Keep the storage directory outside publicly served directories and
+provide users with an operator contact channel for privacy/deletion requests.
+The [privacy policy](frontend/privacy/index.html) explains this behavior.
+
+At most three YouTube metadata/download processes and two upload conversions
+run concurrently. YouTube processing times out after 30 minutes; uploaded
+audio extraction times out after 10 minutes.
 Download only content you own or have permission to download.
 
 ## Checks
@@ -46,7 +72,15 @@ cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
 node --check frontend/shared/downloader.js
+node --check frontend/shared/converter.js
+cargo build --locked
+python tests/media_smoke.py --binary target/debug/admersite
 ```
+
+On Windows, use `target/debug/admersite.exe` for the smoke test. It requires
+Python and FFmpeg, runs the server in isolated temporary storage, and checks
+real image conversion, MP4 audio extraction, expired downloads, and invalid
+uploads. This test also runs in the Ubuntu GitHub Actions checks job.
 
 ## Why Tool Box?
 

@@ -153,7 +153,7 @@ pub async fn youtube_download_handler(
     }
 
     let _slot = download_slot()?;
-    let output_path = download_youtube_mp4(request.url.trim(), request.quality)
+    let download_url = download_youtube_mp4(request.url.trim(), request.quality)
         .await
         .map_err(|error| {
             tracing::error!(%error, "YouTube download failed");
@@ -163,26 +163,15 @@ pub async fn youtube_download_handler(
             )
         })?;
 
-    let filename = output_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Could not prepare the downloaded file.".into(),
-        ))?;
-
-    Ok(Json(YoutubeDownload {
-        download_url: format!("/api/youtube/file/{filename}"),
-    }))
+    Ok(Json(YoutubeDownload { download_url }))
 }
 
 pub async fn download_youtube_mp4(
     url: &str,
     quality: u32,
-) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    let output_dir = PathBuf::from("storage/ytmp4");
-
-    fs::create_dir_all(&output_dir).await?;
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let work = crate::storage::staging()?;
+    let output_dir = work.path();
 
     let filename = format!("{}.mp4", uuid::Uuid::new_v4());
     let output_path = output_dir.join(&filename);
@@ -217,7 +206,7 @@ pub async fn download_youtube_mp4(
     if !fs::try_exists(&output_path).await? {
         return Err("The downloaded file was not created.".into());
     }
-    Ok(output_path)
+    Ok(crate::storage::publish(work.path(), &filename)?)
 }
 
 pub async fn download_file_handler(
@@ -248,6 +237,17 @@ pub async fn download_file_handler(
         .metadata()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if std::time::SystemTime::now()
+        .duration_since(
+            metadata
+                .modified()
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        )
+        .unwrap_or_default()
+        >= crate::storage::RETENTION
+    {
+        return Err(StatusCode::GONE);
+    }
 
     let stream = ReaderStream::new(file);
 
@@ -290,14 +290,14 @@ pub async fn youtube_mp3_handler(
         return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
     }
     let _slot = download_slot()?;
-    let directory = PathBuf::from("storage/ytmp3");
-    fs::create_dir_all(&directory).await.map_err(|error| {
+    let work = crate::storage::staging().map_err(|error| {
         tracing::error!(%error, "Cannot create audio directory");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Could not prepare audio storage.".into(),
         )
     })?;
+    let directory = work.path();
     let filename = format!("{}.mp3", uuid::Uuid::new_v4());
     let path = directory.join(&filename);
     let output = run(
@@ -336,7 +336,13 @@ pub async fn youtube_mp3_handler(
             "Audio download failed. Check that yt-dlp and FFmpeg are installed and the video is available.".into()));
     }
     Ok(Json(YoutubeDownload {
-        download_url: format!("/api/youtube/file/{filename}"),
+        download_url: crate::storage::publish(work.path(), &filename).map_err(|error| {
+            tracing::error!(%error, "Cannot publish audio");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not store the audio file.".into(),
+            )
+        })?,
     }))
 }
 

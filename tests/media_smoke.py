@@ -1,0 +1,129 @@
+"""Exercise real upload, conversion, download, and expiry using FFmpeg fixtures.
+
+Run after cargo build: python tests/media_smoke.py --binary target/debug/admersite
+The server and all generated files are isolated in a temporary directory.
+"""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
+import uuid
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--binary", required=True, type=Path)
+    binary = parser.parse_args().binary.resolve()
+    with tempfile.TemporaryDirectory(prefix="toolbox-smoke-") as working:
+        root = Path(working)
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        base = f"http://127.0.0.1:{port}"
+        environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port))
+        with (root / "server.log").open("w") as log:
+            server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
+            try:
+                for _ in range(100):
+                    try:
+                        urllib.request.urlopen(base + "/api/healthcheck", timeout=1).close()
+                        break
+                    except (urllib.error.URLError, TimeoutError):
+                        if server.poll() is not None:
+                            raise RuntimeError((root / "server.log").read_text())
+                        time.sleep(0.1)
+                else:
+                    raise RuntimeError("Server did not start")
+
+                def get(path, expected=200):
+                    try:
+                        with urllib.request.urlopen(base + path, timeout=10) as response:
+                            assert response.status == expected
+                            return response.read(), response.headers
+                    except urllib.error.HTTPError as error:
+                        assert error.code == expected, (error.code, error.read())
+                        return error.read(), error.headers
+
+                def upload(path, filename, content, output=None, expected=200):
+                    boundary = "Toolbox" + uuid.uuid4().hex
+                    body = bytearray()
+                    if output is not None:
+                        body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="format"\r\n\r\n{output}\r\n'.encode())
+                    body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode())
+                    body.extend(content)
+                    body.extend(f'\r\n--{boundary}--\r\n'.encode())
+                    request = urllib.request.Request(base + path, data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+                    try:
+                        with urllib.request.urlopen(request, timeout=30) as response:
+                            assert response.status == expected
+                            return json.load(response)["download_url"]
+                    except urllib.error.HTTPError as error:
+                        assert error.code == expected, (error.code, error.read())
+                        return None
+
+                for page in ["/", "/images/", "/mp4tomp3/", "/privacy/"]:
+                    html, _ = get(page)
+                    assert b"Privacy" in html
+                assert b"Archiving is not deletion" in get("/privacy/")[0]
+
+                image = root / "sample.png"
+                subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x280", "-frames:v", "1", str(image)], check=True)
+                for extension, mime in [("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("webp", "image/webp"), ("ico", "image/x-icon")]:
+                    url = upload("/api/convert/image", "sample.png", image.read_bytes(), extension)
+                    content, headers = get(url)
+                    assert headers["Content-Type"] == mime
+                    assert headers["Cache-Control"] == "private, no-store"
+                    result = root / f"result.{extension}"
+                    result.write_bytes(content)
+                    subprocess.run(["ffmpeg", "-v", "error", "-i", str(result), "-f", "null", "-"], check=True)
+                    # Every output format is also accepted as an input.
+                    roundtrip = upload("/api/convert/image", result.name, content, "png")
+                    assert get(roundtrip)[0].startswith(b"\x89PNG")
+
+                video = root / "sample.mp4"
+                subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "mpeg4", "-c:a", "aac", "-shortest", str(video)], check=True)
+                url = upload("/api/convert/audio", "sample.mp4", video.read_bytes())
+                content, headers = get(url)
+                assert headers["Content-Type"] == "audio/mpeg"
+                audio = root / "result.mp3"
+                audio.write_bytes(content)
+                subprocess.run(["ffmpeg", "-v", "error", "-i", str(audio), "-f", "null", "-"], check=True)
+                date, filename = url.rsplit("/", 2)[1:]
+                job = root / "storage" / "active" / date / filename.rsplit(".", 1)[0]
+                assert (job / "source.mp4").read_bytes() == video.read_bytes()
+                old = time.time() - 7 * 24 * 3600 - 1
+                os.utime(job / filename, (old, old))
+                get(url, 410)
+                get(f"/api/files/{date}/source.mp4", 400)
+                get(f"/api/files/31022026/{filename}", 400)
+                get(f"/api/files/{date}/invalid.mp3", 400)
+                get("/storage/active/" + date + "/" + filename, 404)
+
+                upload("/api/convert/image", "fake.png", b"invalid image", "png", 400)
+                upload("/api/convert/image", "sample.png", image.read_bytes(), "exe", 400)
+                upload("/api/convert/image", "sample.png", b"", "png", 400)
+                upload("/api/convert/image", "large.png", b"x" * (20 * 1024 * 1024 + 1), "png", 413)
+                upload("/api/convert/audio", "fake.mp4", b"invalid video", expected=400)
+                silent = root / "silent.mp4"
+                subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-an", "-c:v", "mpeg4", str(silent)], check=True)
+                upload("/api/convert/audio", "silent.mp4", silent.read_bytes(), expected=400)
+                assert not list((root / "storage" / "staging").iterdir()), "Working files leaked"
+                print("Media smoke checks passed: all image formats, MP4 audio extraction, expiry, and invalid uploads.")
+            finally:
+                server.terminate()
+                try:
+                    server.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait()
+
+
+if __name__ == "__main__":
+    main()

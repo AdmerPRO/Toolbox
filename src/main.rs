@@ -1,5 +1,6 @@
 mod api;
 mod routes;
+mod storage;
 mod utils;
 
 use api::{download_youtube_mp4, healthcheck};
@@ -8,6 +9,7 @@ use routes::root;
 use anyhow::{Context, Result};
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{get, post},
 };
 use std::env;
@@ -31,6 +33,7 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Loading server...");
+    storage::start_archiver();
 
     let host = env::var("ADDRESS").unwrap_or_else(|_| "127.0.0.1".into());
     let port = env::var("PORT").unwrap_or_else(|_| "3000".into());
@@ -38,6 +41,41 @@ async fn main() -> Result<()> {
     let bind_address = format!("{}:{}", host, port);
 
     let app = Router::new()
+        .route(
+            "/api/convert/image",
+            post(api::media::image_handler)
+                .layer(DefaultBodyLimit::max(api::media::IMAGE_LIMIT + 64 * 1024)),
+        )
+        .route(
+            "/api/convert/audio",
+            post(api::media::audio_handler)
+                .layer(DefaultBodyLimit::max(api::media::VIDEO_LIMIT + 64 * 1024)),
+        )
+        .route(
+            "/api/files/{date}/{filename}",
+            get(storage::download_handler),
+        )
+        .route_service(
+            "/images/",
+            ServeFile::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/frontend/images/index.html"
+            )),
+        )
+        .route_service(
+            "/mp4tomp3/",
+            ServeFile::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/frontend/mp4tomp3/index.html"
+            )),
+        )
+        .route_service(
+            "/privacy/",
+            ServeFile::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/frontend/privacy/index.html"
+            )),
+        )
         .route("/", get(root::root_handler))
         .route_service(
             "/style.css",

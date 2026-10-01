@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Extract MP3 audio from an uploaded MP4 video.">
+    <title>MP4 to MP3 | Tool Box</title>
+    <link rel="stylesheet" href="/root/style.css">
+</head>
+<body data-tool="audio">
+    <div class="shell">
+        <header class="site-header">
+            <a class="brand" href="/"><span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a>
+            <nav aria-label="Main navigation"><a href="/">All tools</a><a href="/privacy/">Privacy</a></nav>
+        </header>
+        <main class="downloader">
+            <a class="back-link" href="/">&#8592; Back to all tools</a>
+            <h1>MP4 to <span>MP3</span></h1>
+            <p class="lead">Upload a video and save its first audio track as a 192 kbps MP3.</p>
+            <div class="panel">
+                <form id="convert-form" action="/api/convert/audio" method="post" enctype="multipart/form-data">
+                    <label for="file">Choose an MP4 video</label>
+                    <input id="file" name="file" type="file" accept=".mp4,video/mp4" required>
+                    <p class="hint">Up to 200 MiB. Your video must contain an audio track. Processing can take up to 10 minutes.</p>
+                    <p class="hint">Your original and extracted files are stored for 7 days, then moved into ZIP archives retained on the server. <a href="/privacy/">Read the privacy policy</a> before uploading.</p>
+                    <button type="submit">Extract MP3 &#8594;</button>
+                </form>
+                <p id="status" class="status" role="status" aria-live="polite"></p>
+                <a id="download-link" class="download-link" hidden download>Save MP3 file &#8595;</a>
+            </div>
+            <p class="hint">Upload content you own or have permission to process. Encoding at 192 kbps cannot improve the original audio quality.</p>
+        </main>
+        <footer><span>Free &amp; ad-free.</span><a href="/privacy/">Privacy policy</a></footer>
+    </div>
+    <script src="/shared/converter.js" defer></script>
+</body>
+</html>

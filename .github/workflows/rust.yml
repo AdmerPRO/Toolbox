@@ -58,8 +58,21 @@ jobs:
         run: cargo fmt --all --check
       - name: Lint Rust
         run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+      - name: Build server for media checks
+        run: cargo build --locked
+      - name: Test upload and conversion endpoints
+        run: python tests/media_smoke.py --binary target/debug/admersite
       - name: Check JavaScript syntax
         run: |
           node --check frontend/shared/downloader.js
+          node --check frontend/shared/converter.js
           node --check frontend/root/script.js
           node --check frontend/youtubemp4/script.js

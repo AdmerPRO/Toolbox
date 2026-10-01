@@ -336,6 +336,14 @@ button:disabled {
     margin:13px 0 0;
 }
 
+.hint a { color:var(--accent); text-decoration:underline; }
+#convert-form input[type=file],#convert-form select { width:100%; }
+#convert-form label:not(:first-child) { margin-top:22px; }
+#convert-form button { margin-top:22px; }
+.policy p { color:var(--muted); line-height:1.8; }
+.policy h2 { margin-top:28px; }
+.policy code { overflow-wrap:anywhere; }
+
 .status {
     font-size:14px;
     line-height:1.6;

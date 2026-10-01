@@ -38,6 +38,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "yt-dlp",
+ "zip",
 ]
 
 [[package]]

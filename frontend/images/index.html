@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Convert PNG, JPG, JPEG, WebP, and ICO images for free.">
+    <title>Image converter | Tool Box</title>
+    <link rel="stylesheet" href="/root/style.css">
+</head>
+<body data-tool="image">
+    <div class="shell">
+        <header class="site-header">
+            <a class="brand" href="/"><span class="brand-icon" aria-hidden="true">[]</span>Tool Box</a>
+            <nav aria-label="Main navigation"><a href="/">All tools</a><a href="/privacy/">Privacy</a></nav>
+        </header>
+        <main class="downloader">
+            <a class="back-link" href="/">&#8592; Back to all tools</a>
+            <h1>Image <span>converter</span></h1>
+            <p class="lead">Switch between PNG, JPG, JPEG, WebP, and ICO.</p>
+            <div class="panel">
+                <form id="convert-form" action="/api/convert/image" method="post" enctype="multipart/form-data">
+                    <label for="file">Choose an image</label>
+                    <input id="file" name="file" type="file" accept=".png,.jpg,.jpeg,.webp,.ico" required>
+                    <p class="hint">Up to 20 MiB and 4096 x 4096 pixels. One image at a time.</p>
+                    <label for="format">Convert to</label>
+                    <select id="format" name="format">
+                        <option value="png">PNG</option><option value="jpg">JPG</option>
+                        <option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="ico">ICO</option>
+                    </select>
+                    <p class="hint">JPG and JPEG use the same format and replace transparency with white. ICO fits within 256 x 256 pixels. WebP output is lossless. Only the first frame or icon is converted.</p>
+                    <p class="hint">Your original and converted files are stored for 7 days, then moved into ZIP archives retained on the server. <a href="/privacy/">Read the privacy policy</a> before uploading.</p>
+                    <button type="submit">Convert image &#8594;</button>
+                </form>
+                <p id="status" class="status" role="status" aria-live="polite"></p>
+                <a id="download-link" class="download-link" hidden download>Save converted image &#8595;</a>
+            </div>
+        </main>
+        <footer><span>Free &amp; ad-free.</span><a href="/privacy/">Privacy policy</a></footer>
+    </div>
+    <script src="/shared/converter.js" defer></script>
+</body>
+</html>

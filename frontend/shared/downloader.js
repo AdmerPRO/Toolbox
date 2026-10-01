@@ -78,7 +78,7 @@ download.addEventListener('click', async () => {
         save.setAttribute('download', '');
         save.hidden = false;
         save.click();
-        message('Your file is ready. If the download did not start, use the save button below.');
+        message('Your file is ready for 7 days. After that, it is retained in a server-side ZIP archive. If the download did not start, use the save button below.');
     } catch (error) { message(error.message, true); }
     finally { lock(false); }
 });

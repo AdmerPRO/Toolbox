@@ -3,8 +3,8 @@
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<meta name="description" content="Simple, free YouTube video and audio tools. Download MP4 videos or MP3 audio.">
-		<title>Toolbox - YouTube to MP4/MP3</title>
+		<meta name="description" content="Free media tools: convert images, extract MP3 from MP4, and download YouTube video and audio.">
+		<title>Tool Box - Free media tools</title>
 		<link rel="stylesheet" href="../root/style.css">
 	</head>
 	<body>
@@ -21,8 +21,8 @@
 			<main>
 				<section class="hero">
 					<div class="eyebrow">Toolkit for youtube and other media</div>
-					</h1>
-					<p class="lead">Pick a tool, paste a link, and download your favorite content.</p>
+					<h1>Your everyday <span>media tools</span></h1>
+					<p class="lead">Convert an image, extract audio, or download from a YouTube link.</p>
 					<div class="chips">
 						<span class="chip">No sign-up</span>
 						<span class="chip">Always free</span>
@@ -30,6 +30,16 @@
 					</div>
 				</section>
 				<section class="tools" aria-label="Available tools">
+					<a class="tool-card" href="/images/">
+						<span class="tool-icon" aria-hidden="true">&#9635;</span><span class="tag">IMAGES</span>
+						<h2>Image converter</h2><p>Convert between PNG, JPG, JPEG, WebP, and ICO. Choose a file and your output format.</p>
+						<span class="card-link">Convert an image &#8599;</span>
+					</a>
+					<a class="tool-card" href="/mp4tomp3/">
+						<span class="tool-icon" aria-hidden="true">&#9835;</span><span class="tag">AUDIO</span>
+						<h2>MP4 to MP3</h2><p>Extract audio from your MP4 video and save it as a 192 kbps MP3 file.</p>
+						<span class="card-link">Extract audio &#8599;</span>
+					</a>
 					<a class="tool-card" href="/youtubemp4/">
 						<span class="tool-icon" aria-hidden="true">&#9654;</span>
 						<span class="tag">VIDEO</span>
@@ -47,8 +57,11 @@
 						</span>
 					</a>
 				</section>
+				<p class="hint">Files stay available for 7 days, then move into ZIP archives retained on the server. <a href="/privacy/">Privacy policy</a></p>
 			</main>
 			<footer>
+				<a href="/privacy/">Privacy policy</a>
+				<button id="welcome-button" class="footer-button" type="button">Welcome message</button>
 				<span>Made for the everyday. Free &amp; ad-free.</span>
 				<a href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
 			</footer>
