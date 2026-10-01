@@ -31,7 +31,8 @@ def main():
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
-        environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port), SITE_URL=base)
+        environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port), SITE_URL=base,
+                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="")
         with (root / "server.log").open("w") as log:
             server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
             try:
@@ -156,6 +157,77 @@ def main():
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-an", "-c:v", "mpeg4", str(silent)], check=True)
                 upload("/api/convert/audio", "silent.mp4", silent.read_bytes(), expected=400)
                 assert not list((root / "storage" / "staging").iterdir()), "Working files leaked"
+                # Keep an upload open: another operation from the same IP must be rejected.
+                slow = socket.create_connection(("127.0.0.1", port), timeout=5)
+                try:
+                    slow.sendall((
+                        "POST /api/convert/image HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{port}\r\n"
+                        "Content-Type: multipart/form-data; boundary=SlowUpload\r\n"
+                        "Content-Length: 100000\r\n\r\n"
+                        "--SlowUpload\r\nContent-Disposition: form-data; name=\"file\"; filename=\"slow.png\"\r\n"
+                        "Content-Type: image/png\r\n\r\npartial"
+                    ).encode())
+                    for _ in range(20):
+                        try:
+                            urllib.request.urlopen(urllib.request.Request(base + "/api/not-a-tool", data=b"", method="POST"), timeout=5).close()
+                        except urllib.error.HTTPError as error:
+                            if error.code == 429:
+                                assert error.headers["Retry-After"] == "1"
+                                assert b"operations running" in error.read()
+                                break
+                            assert error.code in (404, 405)
+                        time.sleep(0.05)
+                    else:
+                        raise AssertionError("A parallel operation bypassed the per-client cap")
+                    get("/")
+                    get("/api/healthcheck")
+                finally:
+                    slow.close()
+                for _ in range(20):
+                    try:
+                        urllib.request.urlopen(urllib.request.Request(base + "/api/not-a-tool", data=b"", method="POST"), timeout=5).close()
+                    except urllib.error.HTTPError as error:
+                        if error.code in (404, 405):
+                            break
+                        assert error.code == 429
+                    time.sleep(0.05)
+                else:
+                    raise AssertionError("Cancelled upload did not release the client slot")
+                recovered = upload("/api/convert/image", "sample.png", image.read_bytes(), "png")
+                assert get(recovered)[0].startswith(b"\x89PNG")
+                # Nonexistent API requests still consume the corresponding bucket.
+                blocked = False
+                for _ in range(101):
+                    request = urllib.request.Request(base + "/api/not-a-tool", data=b"", method="POST")
+                    try:
+                        urllib.request.urlopen(request, timeout=5).close()
+                    except urllib.error.HTTPError as error:
+                        assert error.code in (404, 405, 429), error.code
+                        if error.code == 429:
+                            assert 1 <= int(error.headers["Retry-After"]) <= 60
+                            blocked = True
+                            break
+                assert blocked, "POST rate limit was not enforced"
+                request = urllib.request.Request(base + "/api/not-a-tool", data=b"", method="POST", headers={"X-Forwarded-For": "192.0.2.99"})
+                try:
+                    urllib.request.urlopen(request, timeout=5).close()
+                    raise AssertionError("Spoofed forwarding header bypassed the limit")
+                except urllib.error.HTTPError as error:
+                    assert error.code == 429
+                get("/")
+                get("/api/healthcheck")
+                blocked = False
+                for _ in range(101):
+                    try:
+                        urllib.request.urlopen(base + "/api/not-a-tool", timeout=5).close()
+                    except urllib.error.HTTPError as error:
+                        assert error.code in (404, 429), error.code
+                        if error.code == 429:
+                            assert 1 <= int(error.headers["Retry-After"]) <= 60
+                            blocked = True
+                            break
+                assert blocked, "Read API rate limit was not enforced"
                 print("Media smoke checks passed: image formats, resizing, MP4 extraction/muting, expiry, and invalid uploads.")
             finally:
                 server.terminate()

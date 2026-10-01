@@ -1,4 +1,5 @@
 mod api;
+mod rate_limit;
 mod routes;
 mod storage;
 mod utils;
@@ -42,6 +43,7 @@ async fn main() -> Result<()> {
 
     // Fail early if the canonical origin is misconfigured.
     root::site_url().map_err(|_| anyhow::anyhow!("Invalid SITE_URL configuration"))?;
+    let limiter = rate_limit::RateLimiter::from_env()?;
     let mut app = Router::new()
         .route("/sitemap.xml", get(root::sitemap_handler))
         .route("/robots.txt", get(root::robots_handler))
@@ -140,13 +142,21 @@ async fn main() -> Result<()> {
         );
     }
 
+    app = app.layer(axum::middleware::from_fn_with_state(
+        limiter,
+        rate_limit::middleware,
+    ));
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
         .context("Failed connecting to address")?;
 
     println!("Server running on http://{}", bind_address);
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
 
     Ok(())
 }

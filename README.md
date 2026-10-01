@@ -64,6 +64,35 @@ run concurrently. YouTube processing times out after 30 minutes; uploaded
 audio extraction times out after 10 minutes.
 Download only content you own or have permission to download.
 
+## Rate limiting
+
+Each client IP has two independent 60-second windows: by default, 10 POST
+requests to `/api/` (including metadata lookups and conversions), and 60 other
+API requests (including downloads). Exceeding a limit returns HTTP 429 with
+`Retry-After` in seconds. Failed requests also count. Public pages, static
+assets, and `/api/healthcheck` are excluded. Existing concurrency limits
+still apply independently.
+
+A client may have only one POST API operation in progress by default,
+including uploading, conversion, and YouTube processing. A parallel request
+receives HTTP 429 with `Retry-After: 1`; retry after the current operation
+finishes. Set `MAX_CONCURRENT_JOBS_PER_CLIENT` to change this cap. Slots are
+released on completion, failure, or cancellation. A blocking image conversion
+keeps its slot until its worker finishes even if the client disconnects.
+
+Set `RATE_LIMIT_JOBS_PER_MINUTE` and `RATE_LIMIT_API_PER_MINUTE` to positive
+integers to change the limits. Counters are held in bounded server memory,
+expired entries are periodically removed during API requests, and restarting
+the server resets them. Each server process has its own counters.
+
+Direct connections use the socket peer IP. Behind a reverse proxy, set
+`TRUSTED_PROXY_IPS` to its exact IP addresses, separated by commas, for example
+`127.0.0.1,::1`. Only those proxies may supply `X-Forwarded-For`; the server
+walks the chain from right to left and selects the nearest untrusted address.
+Configure your proxy to replace or append the real connecting client's IP.
+Without trusted proxy configuration, all traffic through a proxy shares its
+IP's limit. Clients sharing a public IP also share the same limit.
+
 ## Checks
 
 GitHub Actions builds and tests the project on Windows, macOS, Ubuntu, and

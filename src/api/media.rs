@@ -1,6 +1,6 @@
 use crate::{api::download_youtube_mp4::YoutubeDownload, storage};
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Multipart, Query},
     http::StatusCode,
 };
@@ -193,8 +193,11 @@ fn convert_image_sized(
 
 use anyhow::Context;
 
-pub async fn image_handler(multipart: Multipart) -> Result<Json<YoutubeDownload>, Error> {
-    image_job(multipart, None).await
+pub async fn image_handler(
+    Extension(client_permit): Extension<Arc<crate::rate_limit::JobPermit>>,
+    multipart: Multipart,
+) -> Result<Json<YoutubeDownload>, Error> {
+    image_job(multipart, None, client_permit).await
 }
 
 #[derive(serde::Deserialize)]
@@ -205,17 +208,24 @@ pub struct ResizeOptions {
 
 pub async fn resize_handler(
     Query(options): Query<ResizeOptions>,
+    Extension(client_permit): Extension<Arc<crate::rate_limit::JobPermit>>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
     if !(1..=4096).contains(&options.width) || !(1..=4096).contains(&options.height) {
         return Err(bad("Choose width and height between 1 and 4096 pixels."));
     }
-    image_job(multipart, Some((options.width, options.height))).await
+    image_job(
+        multipart,
+        Some((options.width, options.height)),
+        client_permit,
+    )
+    .await
 }
 
 async fn image_job(
     multipart: Multipart,
     size: Option<(u32, u32)>,
+    client_permit: Arc<crate::rate_limit::JobPermit>,
 ) -> Result<Json<YoutubeDownload>, Error> {
     let permit = SLOTS.clone().try_acquire_owned().map_err(|_| {
         (
@@ -226,6 +236,7 @@ async fn image_job(
     let work = storage::staging().map_err(internal)?;
     let extension = receive(multipart, work.path(), IMAGE_LIMIT, false).await?;
     let url = tokio::task::spawn_blocking(move || {
+        let _client_permit = client_permit;
         let _permit = permit;
         let input = std::fs::read(
             std::fs::read_dir(work.path())
