@@ -30,7 +30,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 # Errors
 anyhow = "1"
-thiserror = "2"
+thiserror = "2.0.21"
 
 # Logging
 tracing = "0.1"
@@ -62,5 +62,5 @@ dashmap = "6"
 yt-dlp = "2.8.2"
 
 # Misc
-rand = "0.10.2"
+rand = "0.10.3"
 regex = "1"
