@@ -32,6 +32,15 @@ Download only content you own or have permission to download.
 
 ## Checks
 
+GitHub Actions builds and tests the project on Windows, macOS, Ubuntu, and
+Ubuntu ARM64 on pushes and pull requests targeting `master`. The workflow can
+also be started manually. Formatting, Clippy, and JavaScript syntax checks run
+in a separate Ubuntu job.
+
+The ARM64 job checks compatibility with Raspberry Pi running a 64-bit Linux
+OS. It runs on a GitHub-hosted Ubuntu runner, not physical Raspberry Pi
+hardware, and does not cover 32-bit Raspberry Pi OS or external media tools.
+
 ```sh
 cargo fmt --check
 cargo test

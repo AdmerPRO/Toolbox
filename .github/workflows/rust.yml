@@ -1,22 +1,65 @@
-name: Rust
+name: Rust CI
 
 on:
   push:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
+  test:
+    name: Build and test (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+          - platform: macOS
+            os: macos-latest
+          - platform: Ubuntu
+            os: ubuntu-latest
+          # ARM64 coverage for Raspberry Pi running a 64-bit Linux OS.
+          - platform: Ubuntu ARM64 (Raspberry Pi compatibility)
+            os: ubuntu-24.04-arm
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build --locked --all-targets --verbose
+      - name: Run tests
+        run: cargo test --locked --all-targets --verbose
+
+  checks:
+    name: Formatting, linting, and JavaScript syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check Rust formatting
+        run: cargo fmt --all --check
+      - name: Lint Rust
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Check JavaScript syntax
+        run: |
+          node --check frontend/shared/downloader.js
+          node --check frontend/root/script.js
+          node --check frontend/youtubemp4/script.js
