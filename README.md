@@ -173,7 +173,12 @@ Other files
 uploaded by the same IP keep their records; there is no separate IP registry.
 Startup/hourly reconciliation also handles manual filesystem deletions.
 ZIP reads, filesystem scans and archive deletion run outside the audit DB lock;
-short database transactions remain serialized. Existing
+short database transactions remain serialized. Archive deletion keeps a temporary
+hard link until database cleanup commits and restores the ZIP on a database error.
+Interrupted deletions are recovered before archive import on startup/hourly maintenance.
+New archives contain an IP-free upload timestamp manifest for database recovery;
+legacy archives without it retain approximate timestamps. Returning a file to active
+storage resets its archived flag and archive timestamp. Existing
 files are imported with unknown uploader IP and approximate historical times;
 old records cannot reconstruct past access counts. No names, video titles or
 submitted URLs are recorded in this database.

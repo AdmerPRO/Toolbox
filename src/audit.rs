@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
+    io::Read,
     net::IpAddr,
     path::Path,
     sync::{Mutex, OnceLock},
@@ -173,6 +174,24 @@ impl Audit {
         }
         let archives = root.join("archives");
         if archives.exists() {
+            // Recover interrupted deletions before importing any archive entries.
+            for entry in walkdir::WalkDir::new(&archives).follow_links(false) {
+                let entry = entry?;
+                if entry.file_type().is_file()
+                    && entry.path().extension().and_then(|e| e.to_str()) == Some("pending-delete")
+                {
+                    let original = entry.path().with_extension("zip");
+                    let relative = original
+                        .strip_prefix(root)?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    if !self.records(Some(&relative))?.is_empty() && !original.try_exists()? {
+                        std::fs::rename(entry.path(), original)?;
+                    } else {
+                        std::fs::remove_file(entry.path())?;
+                    }
+                }
+            }
             for entry in walkdir::WalkDir::new(archives).follow_links(false) {
                 let entry = entry?;
                 if !entry.file_type().is_file()
@@ -188,6 +207,12 @@ impl Audit {
                 let uploaded_at = chrono::DateTime::<Utc>::from(entry.metadata()?.modified()?)
                     .to_rfc3339_opts(SecondsFormat::Millis, true);
                 let mut archive = zip::ZipArchive::new(std::fs::File::open(entry.path())?)?;
+                let timestamps: std::collections::HashMap<String, String> =
+                    match archive.by_name(".audit-upload-times.json") {
+                        Ok(file) => serde_json::from_reader(file.take(1024 * 1024))?,
+                        Err(zip::result::ZipError::FileNotFound) => Default::default(),
+                        Err(error) => return Err(error.into()),
+                    };
                 for index in 0..archive.len() {
                     let file = archive.by_index(index)?;
                     let name = Path::new(file.name());
@@ -219,7 +244,7 @@ impl Audit {
                         &FileRecord {
                             id,
                             file_type: kind,
-                            uploaded_at: &uploaded_at,
+                            uploaded_at: timestamps.get(id).unwrap_or(&uploaded_at),
                             uploader_ip: None,
                             original_size: 0,
                             stored_size: file.size(),
@@ -293,6 +318,14 @@ impl Audit {
         Ok(())
     }
 
+    pub fn upload_timestamps(&self) -> Result<std::collections::HashMap<String, String>> {
+        Ok(self
+            .records(None)?
+            .into_iter()
+            .map(|(id, _, timestamp, _)| (id, timestamp))
+            .collect())
+    }
+
     pub fn archived(&self, ids: &[String], archive: &str) -> Result<()> {
         let mut connection = self
             .connection
@@ -358,8 +391,28 @@ impl Audit {
             changes.push((id, other, retained));
         }
         // A slow or failed filesystem deletion must not lock out access logging.
-        delete()?;
-        self.apply_changes(changes)
+        let original = root.join(archive);
+        let backup = original.with_extension("pending-delete");
+        let backed_up = original.try_exists()?;
+        if backed_up {
+            std::fs::hard_link(&original, &backup)?;
+        }
+        if let Err(error) = delete() {
+            if backed_up {
+                std::fs::remove_file(&backup)?;
+            }
+            return Err(error);
+        }
+        if let Err(error) = self.apply_changes(changes) {
+            if backed_up {
+                std::fs::rename(&backup, &original)?;
+            }
+            return Err(error);
+        }
+        if backed_up {
+            std::fs::remove_file(backup)?;
+        }
+        Ok(())
     }
 
     pub fn reconcile(&self, root: &Path) -> Result<()> {
@@ -401,14 +454,16 @@ impl Audit {
         let transaction = connection.transaction()?;
         for (id, archive, retained) in changes {
             if retained {
-                transaction.execute("UPDATE files SET archive_path=?2,archived=CASE WHEN ?2 IS NOT NULL THEN 1 ELSE archived END WHERE id=?1 AND deleted_at IS NULL",params![id,archive])?;
+                transaction.execute("UPDATE files SET archive_path=?2,archived=CASE WHEN ?2 IS NOT NULL THEN 1 ELSE 0 END,archived_at=CASE WHEN ?2 IS NULL THEN NULL ELSE archived_at END WHERE id=?1 AND deleted_at IS NULL",params![id,archive])?;
             } else {
                 // Foreign-key cascades remove all associated uploader/viewer IP rows.
                 transaction.execute("DELETE FROM files WHERE id=?1", [id])?;
             }
         }
         transaction.commit()?;
-        connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        if let Err(error) = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);") {
+            tracing::warn!(%error, "Audit checkpoint deferred after committed cleanup");
+        }
         Ok(())
     }
 }
@@ -533,6 +588,65 @@ mod tests {
             )?,
             0
         );
+        Ok(())
+    }
+
+    #[test]
+    fn failed_database_cleanup_restores_zip_and_active_state() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let audit = Audit::open(&root.path().join("audit.sqlite3"))?;
+        add(&audit, "file1")?;
+        std::fs::create_dir_all(root.path().join("archives"))?;
+        let path = root.path().join("archives/test.zip");
+        zip::ZipWriter::new(std::fs::File::create(&path)?).finish()?;
+        audit.archived(&["file1".into()], "archives/test.zip")?;
+        audit.connection.lock().unwrap().execute_batch("CREATE TRIGGER reject_delete BEFORE DELETE ON files BEGIN SELECT RAISE(ABORT, 'injected failure'); END;")?;
+        assert!(
+            audit
+                .delete_archive(root.path(), "archives/test.zip", || {
+                    std::fs::remove_file(&path)?;
+                    Ok(())
+                })
+                .is_err()
+        );
+        assert!(path.exists());
+        assert!(!path.with_extension("pending-delete").exists());
+        assert_eq!(audit.records(None)?.len(), 1);
+        audit.apply_changes(vec![("file1".into(), None, true)])?;
+        let state: (i64, Option<String>) = audit.connection.lock().unwrap().query_row(
+            "SELECT archived,archived_at FROM files WHERE id='file1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        assert_eq!(state, (0, None));
+        Ok(())
+    }
+
+    #[test]
+    fn imports_original_timestamp_from_archive_manifest() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let audit = Audit::open(&root.path().join("audit.sqlite3"))?;
+        let id = uuid::Uuid::new_v4().to_string();
+        std::fs::create_dir_all(root.path().join("archives"))?;
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(
+            root.path().join("archives/test.zip"),
+        )?);
+        writer.start_file(
+            format!("active/03102026/{id}/{id}.png"),
+            zip::write::SimpleFileOptions::default(),
+        )?;
+        std::io::Write::write_all(&mut writer, b"image")?;
+        writer.start_file(
+            ".audit-upload-times.json",
+            zip::write::SimpleFileOptions::default(),
+        )?;
+        serde_json::to_writer(
+            &mut writer,
+            &std::collections::HashMap::from([(id.clone(), "2026-10-03T10:41:22.123Z")]),
+        )?;
+        writer.finish()?;
+        audit.import_storage(root.path())?;
+        assert_eq!(audit.upload_timestamps()?[&id], "2026-10-03T10:41:22.123Z");
         Ok(())
     }
 

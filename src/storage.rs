@@ -442,6 +442,16 @@ fn archive_expired(
                 writer.start_file(name, options)?;
                 copy_archive_file(root, &mut fs::File::open(path)?, &mut writer)?;
             }
+            if let Some(audit) = audit {
+                let mut timestamps = audit.upload_timestamps()?;
+                timestamps.retain(|id, _| {
+                    files
+                        .iter()
+                        .any(|path| path.file_stem().and_then(|s| s.to_str()) == Some(id.as_str()))
+                });
+                writer.start_file(".audit-upload-times.json", options)?;
+                serde_json::to_writer(&mut writer, &timestamps)?;
+            }
             writer.finish()?;
         }
         check_free_space(root)?;
