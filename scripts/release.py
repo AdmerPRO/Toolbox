@@ -41,7 +41,7 @@ def checksum(path):
 def prepare(nightly):
     if nightly:
         date = datetime.now(timezone.utc).strftime("%Y%m%d")
-        tag = f"nightly-{date}-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+        tag = f"nightly-{date}"
     else:
         version = tomllib.loads(Path("Cargo.toml").read_text())["package"]["version"]
         tag = validate_tag(os.environ["RELEASE_TAG"])

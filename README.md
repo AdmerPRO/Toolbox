@@ -222,8 +222,10 @@ in a separate Ubuntu job, together with typos and release packaging tests.
 
 The **Nightly release** workflow runs daily at 02:17 UTC and can also be
 started manually. Each successful run creates a new GitHub prerelease with
-an immutable `nightly-YYYYMMDD-RUN_ID-ATTEMPT` tag. Nightly describes the build
-schedule; both nightly and full releases use stable Rust.
+an immutable `nightly-YYYYMMDD` tag. Nightly describes the build
+schedule; both nightly and full releases use stable Rust. Only one nightly
+release can be published per UTC date; rerunning on the same day does not
+overwrite an existing release.
 
 To generate a full release, open **Actions > Full release > Run workflow**,
 select the source branch, and enter a tag matching the package version in

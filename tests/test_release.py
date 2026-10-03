@@ -12,12 +12,12 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
-    def test_nightly_tags_include_run_and_attempt(self):
+    def test_nightly_tags_use_only_date(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "outputs"
-            with patch.dict(release.os.environ, {"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2"}):
+            with patch.dict(release.os.environ, {"GITHUB_OUTPUT": str(output)}):
                 release.prepare(True)
-            self.assertRegex(output.read_text(), r"^tag=nightly-\d{8}-123-2\n$")
+            self.assertRegex(output.read_text(), r"^tag=nightly-\d{8}\n$")
 
     def test_full_release_tag_must_match_manifest(self):
         source = Path(__file__).resolve().parents[1]
