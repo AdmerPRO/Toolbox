@@ -1,7 +1,7 @@
 PORT=8080
 ADDRESS=127.0.0.1
 # Public origin used by canonical links, sitemap.xml, and robots.txt
-SITE_URL=https://tools.admerpro.pl
+SITE_URL=https://tools.admerpro.com
 
 # Per-client API limits in independent 60-second windows
 RATE_LIMIT_API_PER_MINUTE=60

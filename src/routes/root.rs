@@ -7,7 +7,7 @@ pub async fn root_handler() -> Result<Html<String>, StatusCode> {
 }
 
 pub fn site_url() -> Result<String, StatusCode> {
-    let value = std::env::var("SITE_URL").unwrap_or_else(|_| "https://tools.admerpro.pl".into());
+    let value = std::env::var("SITE_URL").unwrap_or_else(|_| "https://tools.admerpro.com".into());
     validate_site_url(&value).map_err(|message| {
         tracing::error!(%message, "Invalid SITE_URL configuration");
         StatusCode::INTERNAL_SERVER_ERROR
@@ -57,7 +57,7 @@ pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     Ok(Html(
-        html.replace("https://tools.admerpro.pl", &site_url()?)
+        html.replace("https://tools.admerpro.com", &site_url()?)
             .replace("{{PRIVACY_CONTACT_EMAIL}}", &privacy_email()?),
     ))
 }
@@ -70,7 +70,7 @@ pub async fn sitemap_handler()
             "application/xml; charset=utf-8",
         )],
         include_str!("../../frontend/sitemap.xml")
-            .replace("https://tools.admerpro.pl", &site_url()?),
+            .replace("https://tools.admerpro.com", &site_url()?),
     ))
 }
 
@@ -82,7 +82,7 @@ pub async fn robots_handler()
             "text/plain; charset=utf-8",
         )],
         include_str!("../../frontend/robots.txt")
-            .replace("https://tools.admerpro.pl", &site_url()?),
+            .replace("https://tools.admerpro.com", &site_url()?),
     ))
 }
 

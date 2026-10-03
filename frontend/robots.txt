@@ -3,4 +3,4 @@ Allow: /
 Disallow: /api/
 Disallow: /storage/
 
-Sitemap: https://tools.admerpro.pl/sitemap.xml
+Sitemap: https://tools.admerpro.com/sitemap.xml
