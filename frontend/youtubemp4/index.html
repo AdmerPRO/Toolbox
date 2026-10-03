@@ -3,10 +3,10 @@
 	<head>
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
-		<title>YouTube Video Downloader - MP4 up to 4K | Tool Box</title>
+		<title>YouTube MP4 Downloader - Video up to 4K | AdmerPRO Tools</title>
 		<link rel="stylesheet" href="../root/style.css">
 	    <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
-    <meta name="description" content="Download YouTube videos as MP4 files with your chosen resolution, up to 4K when available. Use Tool Box for content you have permission to download.">
+    <meta name="description" content="Save permitted YouTube videos as MP4. Choose a resolution up to 4K when available, then download the processed video for free.">
     <link rel="canonical" href="https://tools.admerpro.com/youtubemp4/">
     <link rel="stylesheet" href="/shared/privacy.css">
     <script src="/shared/privacy.js" defer></script>
@@ -14,8 +14,8 @@
 	<body data-format="mp4">
 		<div class="shell">
 			<header class="site-header">
-				<a class="brand" href="/" aria-label="Tool Box home">
-					<img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">Tool Box</a>
+				<a class="brand" href="/" aria-label="AdmerPRO Tools home">
+					<img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">AdmerPRO Tools</a>
 				<nav class="main-nav" aria-label="Main navigation">
                     <a href="/">All tools</a>
                     <a href="/images/">Convert images</a>
@@ -28,9 +28,16 @@
                     <a href="/privacy/">Privacy</a>
                 </nav>
 			</header>
-			<main class="downloader">
+			<main class="downloader" itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://tools.admerpro.com/youtubemp4/">
+            <meta itemprop="applicationCategory" content="MultimediaApplication">
+            <meta itemprop="operatingSystem" content="Any">
+            <meta itemprop="description" content="Save permitted YouTube videos as MP4. Choose a resolution up to 4K when available, then download the processed video for free.">
+            <span itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+                <meta itemprop="price" content="0"><meta itemprop="priceCurrency" content="USD">
+            </span>
 				<a class="back-link" href="/">&#8592; Back to all tools</a>
-				<h1>YouTube video <span>downloader</span></h1>
+				<h1 itemprop="name">Download YouTube Videos as MP4</h1>
 				<p class="lead">Your favorite videos, ready for offline viewing. Paste a link to get started.</p>
 				<div class="panel">
 					<nav class="mode-tabs" aria-label="Download format">
@@ -69,7 +76,15 @@
 						<b>03</b> Download your video</span>
 				</div>
 				<p class="hint">Download content you own or have permission to download. Available resolutions depend on the original video.</p>
-			</main>
+
+            <section class="seo-content" aria-label="About this tool">
+                <h2>Save a YouTube video as an MP4</h2><p>Use a YouTube video URL, Shorts link or youtu.be link to prepare an MP4 download. Choose from the resolutions available for the original video, up to 4K.</p>
+                <h2>How to use this tool</h2><ol><li>Accept the privacy policy and paste a link to content you own or have permission to download.</li><li>Load the video information and choose an available resolution.</li><li>Start the download preparation, then save the resulting MP4.</li></ol>
+                <h2>Why is my preferred resolution unavailable?</h2><p>Resolution choices depend on the source video. A video uploaded at a lower resolution cannot be downloaded in true 4K. This tool processes one video at a time rather than a playlist, and preparation may take longer for large videos.</p>
+                <h2>Download availability and privacy</h2><p>Result links are available for 7 days. Files then move into ZIP archives deleted 30 days after creation. File-related IP addresses and download times are recorded for abuse investigation. <a href="/privacy/">Read the privacy policy</a> before submitting files or links.</p>
+                <h2>Related tools</h2><p><a href="/youtubemp3/">Download only the audio as MP3</a></p>
+            </section>
+        </main>
 			<footer>
 				<a href="/privacy/">Privacy policy</a>
 				<span>Files are available for 7 days, then archived in ZIP files for another 30 days.</span>

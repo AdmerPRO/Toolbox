@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Remove Audio from MP4 - Silent Video Maker | Tool Box</title>
+    <title>Remove Audio from Video Online - Mute MP4 | AdmerPRO Tools</title>
     <link rel="stylesheet" href="/root/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
-    <meta name="description" content="Remove audio from an MP4 video without re-encoding its first video track. Upload your video and download a silent MP4 with Tool Box.">
+    <meta name="description" content="Mute an MP4 video online for free. Remove audio without re-encoding the first video track and download a silent MP4.">
     <link rel="canonical" href="https://tools.admerpro.com/mute/">
     <link rel="stylesheet" href="/shared/privacy.css">
     <script src="/shared/privacy.js" defer></script>
@@ -14,7 +14,7 @@
 <body data-tool="mute">
     <div class="shell">
         <header class="site-header">
-            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">Tool Box</a>
+            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">AdmerPRO Tools</a>
             <nav class="main-nav" aria-label="Main navigation">
                     <a href="/">All tools</a>
                     <a href="/images/">Convert images</a>
@@ -27,9 +27,16 @@
                     <a href="/privacy/">Privacy</a>
                 </nav>
         </header>
-        <main class="downloader">
+        <main class="downloader" itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://tools.admerpro.com/mute/">
+            <meta itemprop="applicationCategory" content="MultimediaApplication">
+            <meta itemprop="operatingSystem" content="Any">
+            <meta itemprop="description" content="Mute an MP4 video online for free. Remove audio without re-encoding the first video track and download a silent MP4.">
+            <span itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+                <meta itemprop="price" content="0"><meta itemprop="priceCurrency" content="USD">
+            </span>
             <a class="back-link" href="/">&#8592; Back to all tools</a>
-            <h1>Silent video <span>maker</span></h1>
+            <h1 itemprop="name">Remove Audio from Video</h1>
             <p class="lead">Remove audio from your MP4. The first video track is copied without re-encoding.</p>
             <div class="panel">
                 <form id="convert-form" action="/api/convert/mute" method="post" enctype="multipart/form-data">
@@ -43,6 +50,14 @@
                 <a id="download-link" class="download-link" hidden download>Save silent MP4 &#8595;</a>
             </div>
             <p class="hint">Upload content you own or have permission to process.</p>
+
+            <section class="seo-content" aria-label="About this tool">
+                <h2>Make a silent MP4 video</h2><p>Remove speech, music or background noise from an MP4 before sharing it. The tool copies the first video track without re-encoding and leaves out the audio tracks.</p>
+                <h2>How to use this tool</h2><ol><li>Choose an MP4 containing a video track and accept the privacy policy.</li><li>Click Mute video and wait for the result.</li><li>Download the silent MP4 using the result link.</li></ol>
+                <h2>Does muting change the picture quality?</h2><p>The selected video track is copied without re-encoding, so muting does not introduce another round of picture compression. Uploads must be at most 200 MiB and two hours long, with no more than 10 streams. Processing can take up to 10 minutes.</p>
+                <h2>Download availability and privacy</h2><p>Result links are available for 7 days. Files then move into ZIP archives deleted 30 days after creation. File-related IP addresses and download times are recorded for abuse investigation. <a href="/privacy/">Read the privacy policy</a> before submitting files or links.</p>
+                <h2>Related tools</h2><p><a href="/mp4tomp3/">Extract MP3 audio from an MP4</a></p>
+            </section>
         </main>
         <footer><span>Free &amp; ad-free.</span><a href="/privacy/">Privacy policy</a></footer>
     </div>

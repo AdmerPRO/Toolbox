@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code Generator | Tool Box</title>
+    <title>Free QR Code Generator - Text or URL to PNG | AdmerPRO Tools</title>
     <link rel="stylesheet" href="/root/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
-    <meta name="description" content="Generate a QR code from text or a URL. Preview and download a free PNG QR code.">
+    <meta name="description" content="Create a QR code online from text or a URL. Preview the code and download a PNG for free. Submitted text is processed without being stored.">
     <link rel="canonical" href="https://tools.admerpro.com/qr/">
 </head>
 <body data-tool="qr">
     <div class="shell">
         <header class="site-header">
-            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">Tool Box</a>
+            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">AdmerPRO Tools</a>
             <nav class="main-nav" aria-label="Main navigation">
                     <a href="/">All tools</a>
                     <a href="/images/">Convert images</a>
@@ -25,9 +25,16 @@
                     <a href="/privacy/">Privacy</a>
                 </nav>
         </header>
-        <main class="downloader">
+        <main class="downloader" itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://tools.admerpro.com/qr/">
+            <meta itemprop="applicationCategory" content="UtilitiesApplication">
+            <meta itemprop="operatingSystem" content="Any">
+            <meta itemprop="description" content="Create a QR code online from text or a URL. Preview the code and download a PNG for free. Submitted text is processed without being stored.">
+            <span itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+                <meta itemprop="price" content="0"><meta itemprop="priceCurrency" content="USD">
+            </span>
             <a class="back-link" href="/">&#8592; Back to all tools</a>
-            <h1>QR code <span>generator</span></h1>
+            <h1 itemprop="name">Generate QR Codes Online</h1>
             <p class="lead">Turn text or a URL into a QR code and save it as a PNG.</p>
             <div class="panel">
                 <form id="qr-form" action="/api/qr" method="post">
@@ -40,6 +47,14 @@
                 <img id="qr-preview" alt="Generated QR code" width="256" height="256" hidden>
                 <a id="download-link" class="download-link" hidden download="qr-code.png">Save QR code &#8595;</a>
             </div>
+
+            <section class="seo-content" aria-label="About this tool">
+                <h2>Create a QR code from text or a link</h2><p>Encode a website address or a short piece of text in a QR code that you can save as a PNG. No account is required. The result includes a white border so scanners can distinguish the code from its surroundings.</p>
+                <h2>How to use this tool</h2><ol><li>Enter your text or a complete URL, including https:// for a website.</li><li>Click Generate QR code to see the preview.</li><li>Download the PNG and test it with a QR scanner before printing or sharing.</li></ol>
+                <h2>Is the QR code stored or time limited?</h2><p>Your text is processed by the server without being stored, and the PNG is downloaded directly. The code itself has no expiry date, although a linked website can change or become unavailable. Input is limited to 2000 UTF-8 bytes; accented letters and emoji may use more than one byte. Keep the white border when placing the code in a design.</p>
+
+                <h2>Related tools</h2><p><a href="/images/">Convert an image to another format</a></p>
+            </section>
         </main>
         <footer><span>Free &amp; ad-free.</span><a href="/privacy/">Privacy policy</a></footer>
     </div>

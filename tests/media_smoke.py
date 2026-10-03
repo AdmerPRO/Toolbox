@@ -6,6 +6,7 @@ The server and all generated files are isolated in a temporary directory.
 
 import argparse
 from contextlib import closing
+from html.parser import HTMLParser
 import json
 import os
 import re
@@ -22,6 +23,15 @@ import uuid
 import xml.etree.ElementTree as ET
 
 
+class PageMarkup(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags = []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append((tag, dict(attrs)))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path)
@@ -34,7 +44,7 @@ def main():
             port = listener.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
         environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port), SITE_URL=base,
-                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="", UPLOAD_TIMEOUT_SECONDS="2", PRIVACY_CONTACT_EMAIL="privacy@example.org")
+                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="", UPLOAD_TIMEOUT_SECONDS="2", PRIVACY_CONTACT_EMAIL="privacy@example.org", HSTS_MAX_AGE_SECONDS="0")
         with (root / "server.log").open("w") as log:
             server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
             try:
@@ -81,7 +91,7 @@ def main():
                         assert error.code == expected, (error.code, error.read())
                         return None
 
-                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/privacy/"]
+                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/qr/", "/privacy/"]
                 descriptions = []
                 for page in pages:
                     html, page_headers = get(page)
@@ -92,8 +102,9 @@ def main():
                     assert page_headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
                     assert "camera=()" in page_headers["Permissions-Policy"]
                     assert b"Privacy" in html
-                    assert b'id="privacy-dialog"' in html
-                    assert b'/shared/privacy.js' in html
+                    if page != "/qr/":
+                        assert b'id="privacy-dialog"' in html
+                        assert b'/shared/privacy.js' in html
                     if page == "/privacy/":
                         assert b"privacy@example.org" in html
                         assert b"{{PRIVACY_CONTACT_EMAIL}}" not in html
@@ -103,24 +114,63 @@ def main():
                     assert f'<link rel="canonical" href="{base}{page}">' in text
                     assert 'class="brand-cat" src="/assets/good_cat_image.png"' in text
                     assert '{{SITE_URL}}' not in text
+                    markup = PageMarkup()
+                    markup.feed(text)
+                    assert sum(tag == "h1" for tag, _ in markup.tags) == 1
+                    assert "AdmerPRO Tools" in text
+                    if page != "/privacy/":
+                        schema = "WebSite" if page == "/" else "WebApplication"
+                        assert any(attrs.get("itemtype") == "https://schema.org/" + schema for _, attrs in markup.tags)
+                        assert any(attrs.get("itemprop") == "url" and attrs.get("href") == base + page for _, attrs in markup.tags)
+                        if page != "/":
+                            assert any(attrs.get("class") == "seo-content" for _, attrs in markup.tags)
+                            assert any(attrs.get("itemprop") == "price" and attrs.get("content") == "0" for _, attrs in markup.tags)
+                            assert any(tag == "ol" for tag, _ in markup.tags)
                 assert len(set(descriptions)) == len(pages)
                 cat, cat_headers = get("/assets/good_cat_image.png")
                 assert cat.startswith(b"\x89PNG") and cat_headers["Content-Type"] == "image/png"
                 sitemap, sitemap_headers = get("/sitemap.xml")
                 assert sitemap_headers["Content-Type"].startswith("application/xml")
                 urls = [entry.text for entry in ET.fromstring(sitemap).findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url/{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
-                assert set(urls) == {base + page for page in pages}
+                expected_urls = {base + page for page in pages}
+                assert set(urls) == expected_urls, {"missing": expected_urls - set(urls), "unexpected": set(urls) - expected_urls}
+                assert len(urls) == len(set(urls)), "Duplicate sitemap entries"
                 robots, _ = get("/robots.txt")
                 assert robots.count(b"Sitemap:") == 1
                 assert f"Sitemap: {base}/sitemap.xml".encode() in robots
                 assert b"Disallow: /api/" in robots
                 assert get("/images/index.html")[0] == get("/images/")[0]
+                assert get("/qr/index.html")[0] == get("/qr/")[0]
+                assert get("/qr")[0] == get("/qr/")[0]
                 assert b"Archiving is not deletion" in get("/privacy/")[0]
                 assert b"30 days after it is created" in get("/privacy/")[0]
 
+                # QR generation needs no upload, consent cookie, or retained file.
+                def qr(text, expected=200):
+                    request = urllib.request.Request(base + "/api/qr", data=json.dumps({"text": text}).encode(), headers={"Content-Type": "application/json"})
+                    try:
+                        with urllib.request.urlopen(request, timeout=10) as response:
+                            assert response.status == expected
+                            assert response.headers["Content-Type"] == "image/png"
+                            assert response.headers["Cache-Control"] == "private, no-store"
+                            assert "qr-code.png" in response.headers["Content-Disposition"]
+                            return response.read()
+                    except urllib.error.HTTPError as error:
+                        assert error.code == expected, (error.code, error.read())
+                        return None
+
+                qr_png = qr("https://example.org/")
+                assert qr_png.startswith(b"\x89PNG")
+                qr_file = root / "qr.png"
+                qr_file.write_bytes(qr_png)
+                subprocess.run(["ffmpeg", "-v", "error", "-i", str(qr_file), "-f", "null", "-"], check=True)
+                qr(" ", 400)
+                qr("x" * 2001, 400)
+                assert not list((root / "storage" / "active").rglob("*.png")), "QR generation retained a result"
+
                 image = root / "sample.png"
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x280", "-frames:v", "1", str(image)], check=True)
-                for extension, mime in [("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("webp", "image/webp"), ("ico", "image/x-icon"), ("bmp", "image/bmp"), ("tiff", "image/tiff")]:
+                for extension, mime in [("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("gif", "image/gif"), ("webp", "image/webp"), ("ico", "image/x-icon"), ("bmp", "image/bmp"), ("tiff", "image/tiff")]:
                     url = upload("/api/convert/image", "sample.png", image.read_bytes(), extension)
                     content, headers = get(url)
                     assert headers["Content-Type"] == mime

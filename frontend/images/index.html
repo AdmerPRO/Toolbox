@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Format Converter - PNG, JPG, GIF, WebP, ICO, BMP &amp; TIFF | Tool Box</title>
+    <title>Free Online Image Converter - PNG, JPG, GIF &amp; WebP | AdmerPRO Tools</title>
     <link rel="stylesheet" href="/root/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
-    <meta name="description" content="Convert images between PNG, JPG, JPEG, GIF, WebP, ICO, BMP, and TIFF with Tool Box. Free image format conversion with no sign-up required.">
+    <meta name="description" content="Convert PNG, JPG, JPEG, GIF, WebP, ICO, BMP and TIFF images online for free. Choose an output format and download your converted image.">
     <link rel="canonical" href="https://tools.admerpro.com/images/">
     <link rel="stylesheet" href="/shared/privacy.css">
     <script src="/shared/privacy.js" defer></script>
@@ -14,7 +14,7 @@
 <body data-tool="image">
     <div class="shell">
         <header class="site-header">
-            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">Tool Box</a>
+            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">AdmerPRO Tools</a>
             <nav class="main-nav" aria-label="Main navigation">
                     <a href="/">All tools</a>
                     <a href="/images/" aria-current="page">Convert images</a>
@@ -27,9 +27,16 @@
                     <a href="/privacy/">Privacy</a>
                 </nav>
         </header>
-        <main class="downloader">
+        <main class="downloader" itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://tools.admerpro.com/images/">
+            <meta itemprop="applicationCategory" content="MultimediaApplication">
+            <meta itemprop="operatingSystem" content="Any">
+            <meta itemprop="description" content="Convert PNG, JPG, JPEG, GIF, WebP, ICO, BMP and TIFF images online for free. Choose an output format and download your converted image.">
+            <span itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+                <meta itemprop="price" content="0"><meta itemprop="priceCurrency" content="USD">
+            </span>
             <a class="back-link" href="/">&#8592; Back to all tools</a>
-            <h1>Image format <span>converter</span></h1>
+            <h1 itemprop="name">Convert Images Online</h1>
             <p class="lead">Switch between PNG, JPG, JPEG, GIF, WebP, ICO, BMP, and TIFF.</p>
             <div class="panel">
                 <form id="convert-form" action="/api/convert/image" method="post" enctype="multipart/form-data">
@@ -48,6 +55,14 @@
                 <p id="status" class="status" role="status" aria-live="polite"></p>
                 <a id="download-link" class="download-link" hidden download>Save converted image &#8595;</a>
             </div>
+
+            <section class="seo-content" aria-label="About this tool">
+                <h2>Free online image format converter</h2><p>Convert a photo, icon or graphic into a format that fits your next task. PNG keeps transparency, JPEG is useful for photos, and WebP output is lossless. GIF output is a single static image.</p>
+                <h2>How to use this tool</h2><ol><li>Choose one image from your device and accept the privacy policy.</li><li>Select PNG, JPG, JPEG, GIF, WebP, ICO, BMP or TIFF as the output format.</li><li>Click Convert image and download the result.</li></ol>
+                <h2>Which image formats are supported?</h2><p>Input and output support PNG, JPG, JPEG, GIF, WebP, ICO, BMP and TIFF. Files must be no larger than 20 MiB and 4096 x 4096 pixels. Animated inputs use only the first frame. JPEG replaces transparency with white; ICO output fits within 256 x 256 pixels.</p>
+                <h2>Download availability and privacy</h2><p>Result links are available for 7 days. Files then move into ZIP archives deleted 30 days after creation. File-related IP addresses and download times are recorded for abuse investigation. <a href="/privacy/">Read the privacy policy</a> before submitting files or links.</p>
+                <h2>Related tools</h2><p><a href="/resize/">Resize an image while keeping its aspect ratio</a></p>
+            </section>
         </main>
         <footer><span>Free &amp; ad-free.</span><a href="/privacy/">Privacy policy</a></footer>
     </div>
