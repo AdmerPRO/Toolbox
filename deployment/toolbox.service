@@ -11,6 +11,7 @@ WorkingDirectory=/opt/toolbox
 ExecStart=/opt/toolbox/admersite
 Environment=ADDRESS=127.0.0.1
 Environment=PORT=8080
+Environment=HSTS_MAX_AGE_SECONDS=31536000
 Environment=TRUSTED_PROXY_IPS=127.0.0.1,::1
 Environment=HOME=/var/lib/toolbox
 Environment=TMPDIR=/opt/toolbox/storage/tmp

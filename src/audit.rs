@@ -30,6 +30,11 @@ pub fn now() -> String {
 }
 pub fn initialize() -> Result<()> {
     std::fs::create_dir_all("storage")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions("storage", std::fs::Permissions::from_mode(0o700))?;
+    }
     let audit = Audit::open(Path::new("storage/audit.sqlite3"))?;
     audit.import_storage(Path::new("storage"))?;
     audit.reconcile(Path::new("storage"))?;
@@ -71,6 +76,18 @@ impl Audit {
             CREATE INDEX IF NOT EXISTS files_archive ON files(archive_path);
             CREATE INDEX IF NOT EXISTS files_uploader ON files(uploader_ip);
             CREATE INDEX IF NOT EXISTS file_access_viewer ON file_access(viewer_ip);")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for suffix in ["-wal", "-shm", "-journal"] {
+                let sidecar = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
+                match std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o600)) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
         // Upgrade databases created before the counter was named accurately.
         let has_old_counter: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('files') WHERE name='open_count')",

@@ -59,8 +59,11 @@ data. Keep the storage directory outside publicly served directories and
 provide users with an operator contact channel for privacy/deletion requests.
 The [privacy policy](frontend/privacy/index.html) explains this behavior.
 
-At most three YouTube metadata/download processes and two upload conversions
-run concurrently. YouTube downloads are limited to 500 MiB per result and 2 hours of recorded media.
+At most two heavy jobs run concurrently across upload conversions, YouTube
+metadata/download processes and ZIP maintenance. Busy requests receive HTTP 429;
+busy maintenance retries at the next hourly tick. Metadata lookups additionally
+allow only one yt-dlp process, have a 30-second timeout and cache up to 128
+successful results for five minutes. Existing per-IP limits still apply. YouTube downloads are limited to 500 MiB per result and 2 hours of recorded media.
 Live streams, channels and playlists are rejected; accepted links are normalized
 to one canonical video URL. YouTube processing times out after 10 minutes; uploaded
 audio extraction times out after 10 minutes. Uploads time out after 5 minutes.
@@ -118,9 +121,11 @@ starts; insufficient capacity leaves originals intact for the next attempt.
 Set `UPLOAD_TIMEOUT_SECONDS` (1-3600) to change the complete multipart upload deadline.
 
 Every response carries CSP, nosniff, frame denial, referrer and permissions
-policies. Optional `HSTS_MAX_AGE_SECONDS` (0-31536000, default 0) adds
+policies. `HSTS_MAX_AGE_SECONDS` (0-31536000, application default 0) adds
 `Strict-Transport-Security` when explicitly enabled with an HTTPS `SITE_URL`.
-It covers this hostname only, without includeSubDomains/preload. Behind a local
+The supplied production environment example and systemd service explicitly set
+31536000; use 0 for local HTTP development. It covers this hostname only, without
+includeSubDomains/preload. Behind a local
 HTTP Tunnel origin the public HTTPS response still carries the configured header;
 browsers ignore HSTS received over HTTP. Align its value with Cloudflare HSTS. CSP permits scripts/styles from this origin and YouTube thumbnails
 from `i.ytimg.com` / `img.youtube.com`. API responses use `private, no-store`.
@@ -134,7 +139,10 @@ changing this repository does not activate them on an existing server.
 
 The application automatically creates `storage/audit.sqlite3` (SQLite, bundled
 with the executable, no separate database server needed). It is not served by
-HTTP. The three tables are:
+HTTP. IPs are stored in plaintext, so the database and backups are sensitive.
+On Unix, startup enforces mode 0700 on `storage/` and 0600 on the database
+and existing SQLite WAL/SHM/journal files. New sidecars inherit database
+permissions. On Windows, restrict access using filesystem ACLs. The three tables are:
 
 | Table | Records |
 | --- | --- |

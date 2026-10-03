@@ -19,6 +19,6 @@ UPLOAD_TIMEOUT_SECONDS=300
 # Public contact for privacy requests and abuse reports
 PRIVACY_CONTACT_EMAIL=admin@tools.admerpro.com
 
-# Optional application HSTS, requires an HTTPS SITE_URL. 0 disables it.
+# Production HSTS for the HTTPS SITE_URL above. Set 0 for a local HTTP SITE_URL.
 # Applies to this hostname only; no includeSubDomains or preload.
-HSTS_MAX_AGE_SECONDS=0
+HSTS_MAX_AGE_SECONDS=31536000

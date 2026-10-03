@@ -3,7 +3,35 @@ use std::{
     process::{Output, Stdio},
 };
 
-static DOWNLOAD_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(3);
+static INFO_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+static INFO_CACHE: std::sync::LazyLock<std::sync::Mutex<InfoCache>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(InfoCache::default()));
+#[derive(Default)]
+struct InfoCache(std::collections::HashMap<String, (std::time::Instant, YoutubeInfo)>);
+impl InfoCache {
+    fn get(&self, url: &str, now: std::time::Instant) -> Option<YoutubeInfo> {
+        self.0
+            .get(url)
+            .filter(|(saved, _)| now.duration_since(*saved) < std::time::Duration::from_secs(300))
+            .map(|(_, info)| info.clone())
+    }
+    fn insert(&mut self, url: String, info: YoutubeInfo, now: std::time::Instant) {
+        self.0.retain(|_, (saved, _)| {
+            now.duration_since(*saved) < std::time::Duration::from_secs(300)
+        });
+        if self.0.len() >= 128
+            && !self.0.contains_key(&url)
+            && let Some(oldest) = self
+                .0
+                .iter()
+                .min_by_key(|(_, (saved, _))| *saved)
+                .map(|(key, _)| key.clone())
+        {
+            self.0.remove(&oldest);
+        }
+        self.0.insert(url, (now, info));
+    }
+}
 
 const MAX_YOUTUBE_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_JOB_BYTES: u64 = 1500 * 1024 * 1024;
@@ -53,15 +81,6 @@ async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, Strin
     Ok(())
 }
 
-fn download_slot() -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, String)> {
-    DOWNLOAD_SLOTS.try_acquire().map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "The server is busy. Please try again shortly.".into(),
-        )
-    })
-}
-
 use axum::{
     Json,
     body::Body,
@@ -84,7 +103,7 @@ pub struct YoutubeDownloadRequest {
     pub quality: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct YoutubeInfo {
     pub title: String,
     pub thumbnail: Option<String>,
@@ -149,7 +168,21 @@ pub async fn youtube_info_handler(
         return Err(bad_request("Provide a valid YouTube video link."));
     }
 
-    let _slot = download_slot()?;
+    let url = youtube_video_url(&request.url).unwrap();
+    if let Some(info) = INFO_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&url, std::time::Instant::now())
+    {
+        return Ok(Json(info));
+    }
+    let _info_slot = INFO_SLOT.try_acquire().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Video information lookup is busy. Please try again shortly.".into(),
+        )
+    })?;
+    let _slot = crate::resources::acquire()?;
     let output = run(
         Command::new("yt-dlp")
             .kill_on_drop(true)
@@ -158,14 +191,18 @@ pub async fn youtube_info_handler(
                 "--no-plugin-dirs",
                 "--no-cache-dir",
                 "--socket-timeout",
-                "30",
+                "15",
+                "--retries",
+                "1",
+                "--extractor-retries",
+                "1",
                 "--dump-single-json",
                 "--no-playlist",
                 "--skip-download",
                 "--",
             ])
             .arg(youtube_video_url(&request.url).unwrap()),
-        90,
+        30,
     )
     .await
     .map_err(|_| {
@@ -224,11 +261,17 @@ pub async fn youtube_info_handler(
     qualities.dedup();
     qualities.retain(|quality| (144..=2160).contains(quality));
 
-    Ok(Json(YoutubeInfo {
+    let info = YoutubeInfo {
         title,
         thumbnail,
         qualities,
-    }))
+    };
+    INFO_CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(
+        url,
+        info.clone(),
+        std::time::Instant::now(),
+    );
+    Ok(Json(info))
 }
 
 pub async fn youtube_download_handler(
@@ -245,7 +288,7 @@ pub async fn youtube_download_handler(
         return Err(bad_request("Choose a valid video quality."));
     }
 
-    let _slot = download_slot()?;
+    let _slot = crate::resources::acquire()?;
     let work = crate::storage::prepare(2 * 1024 * 1024 * 1024)
         .await
         .map_err(storage_error)?;
@@ -406,7 +449,7 @@ pub async fn youtube_mp3_handler(
     if !matches!(request.quality, 128 | 192 | 256 | 320) {
         return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
     }
-    let _slot = download_slot()?;
+    let _slot = crate::resources::acquire()?;
     let work = crate::storage::prepare(2 * 1024 * 1024 * 1024)
         .await
         .map_err(storage_error)?;
@@ -462,6 +505,41 @@ pub async fn youtube_mp3_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn metadata_cache_expires_and_bounds_entries() {
+        let mut cache = InfoCache::default();
+        let start = std::time::Instant::now();
+        for index in 0..129 {
+            cache.insert(
+                index.to_string(),
+                YoutubeInfo {
+                    title: index.to_string(),
+                    thumbnail: None,
+                    qualities: vec![720],
+                },
+                start + std::time::Duration::from_millis(index),
+            );
+        }
+        assert_eq!(cache.0.len(), 128);
+        assert!(
+            cache
+                .get("0", start + std::time::Duration::from_secs(1))
+                .is_none()
+        );
+        assert_eq!(
+            cache
+                .get("128", start + std::time::Duration::from_secs(1))
+                .unwrap()
+                .qualities,
+            vec![720]
+        );
+        assert!(
+            cache
+                .get("128", start + std::time::Duration::from_secs(301))
+                .is_none()
+        );
+    }
 
     #[test]
     fn youtube_links_only() {

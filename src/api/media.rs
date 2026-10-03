@@ -8,15 +8,13 @@ use image::{DynamicImage, ImageFormat, ImageReader};
 use std::{
     io::{Cursor, Write},
     path::Path,
-    sync::{Arc, LazyLock},
+    sync::Arc,
     time::Duration,
 };
 use tokio::io::AsyncWriteExt;
 
 pub const IMAGE_LIMIT: usize = 20 * 1024 * 1024;
 pub const VIDEO_LIMIT: usize = 200 * 1024 * 1024;
-static SLOTS: LazyLock<Arc<tokio::sync::Semaphore>> =
-    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(2)));
 type Error = (StatusCode, String);
 
 fn bad(message: &str) -> Error {
@@ -254,12 +252,7 @@ async fn image_job(
     client_permit: Arc<crate::rate_limit::JobPermit>,
     uploader_ip: std::net::IpAddr,
 ) -> Result<Json<YoutubeDownload>, Error> {
-    let permit = SLOTS.clone().try_acquire_owned().map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "The server is busy. Please try again shortly.".into(),
-        )
-    })?;
+    let permit = crate::resources::acquire()?;
     let work = storage::prepare(768 * 1024 * 1024).await.map_err(|error| {
         tracing::warn!(%error, "Storage unavailable");
         (
@@ -318,12 +311,7 @@ async fn video_job(
     mute: bool,
     uploader_ip: std::net::IpAddr,
 ) -> Result<Json<YoutubeDownload>, Error> {
-    let _permit = SLOTS.clone().try_acquire_owned().map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "The server is busy. Please try again shortly.".into(),
-        )
-    })?;
+    let _permit = crate::resources::acquire()?;
     let work = storage::prepare(768 * 1024 * 1024).await.map_err(|error| {
         tracing::warn!(%error, "Storage unavailable");
         (

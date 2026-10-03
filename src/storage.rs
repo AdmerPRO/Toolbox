@@ -302,6 +302,10 @@ pub fn start_archiver() {
         let mut interval = tokio::time::interval(Duration::from_secs(3600));
         loop {
             interval.tick().await;
+            let Ok(_permit) = crate::resources::acquire() else {
+                tracing::info!("Storage maintenance deferred while media jobs are busy");
+                continue;
+            };
             match tokio::task::spawn_blocking(|| {
                 let audit = crate::audit::database()?;
                 audit.import_storage(Path::new("storage"))?;

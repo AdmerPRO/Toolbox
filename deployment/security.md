@@ -97,7 +97,10 @@ References: [yt-dlp options](https://github.com/yt-dlp/yt-dlp#usage-and-options)
 ## Audit database and private media review
 
 `storage/audit.sqlite3` and its SQLite WAL/SHM files contain private upload and
-viewer IP records. The service's UMask=0077 protects files it creates. Keep
+viewer IP records in plaintext. On Unix, startup enforces storage mode 0700
+and database/WAL/SHM/journal mode 0600; new sidecars inherit database permissions.
+The service's UMask=0077 also protects files it creates. On Windows, use restricted
+filesystem ACLs. Keep
 storage inaccessible to other accounts, and check ownership/permissions when
 migrating existing storage. Do not expose SQLite or an audit dashboard over
 public HTTP. Read the README administrator inspection queries for local access.
@@ -108,7 +111,9 @@ live-database cleanup does not erase off-host copies. SQLite uses secure_delete
 and checkpoints after cleanup; filesystem snapshots and physical media recovery
 are outside the application's logical deletion guarantees.
 
-Application HSTS is optional: set `HSTS_MAX_AGE_SECONDS` only after the public
-hostname supports HTTPS and `SITE_URL` uses HTTPS. Default 0 omits the header.
+The supplied production environment example and service set
+`HSTS_MAX_AGE_SECONDS=31536000`. Enable it only after the public
+hostname supports HTTPS and `SITE_URL` uses HTTPS. The application default 0
+omits the header for local HTTP development.
 The application adds neither includeSubDomains nor preload. Align application
 and Cloudflare header policies; client cookies/forwarded headers do not enable HSTS.

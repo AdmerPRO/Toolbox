@@ -2,6 +2,7 @@ mod api;
 mod audit;
 mod process;
 mod rate_limit;
+mod resources;
 mod routes;
 mod security;
 mod storage;
