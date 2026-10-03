@@ -164,6 +164,7 @@ fn bad_request(message: impl Into<String>) -> (StatusCode, String) {
 pub async fn youtube_info_handler(
     Json(request): Json<YoutubeUrlRequest>,
 ) -> Result<Json<YoutubeInfo>, (StatusCode, String)> {
+    info!("YouTube video info requested");
     if !is_youtube_url(&request.url) {
         return Err(bad_request("Provide a valid YouTube video link."));
     }
@@ -280,6 +281,7 @@ pub async fn youtube_download_handler(
     >,
     Json(request): Json<YoutubeDownloadRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
+    info!("YouTube MP4 download requested");
     if !is_youtube_url(&request.url) {
         return Err(bad_request("Provide a valid YouTube video link."));
     }
@@ -377,7 +379,7 @@ pub async fn download_file_handler(
     info!(
         endpoint = "/api/youtube/file",
         filename = %filename,
-        "File requested"
+        "File id: {id} download requested"
     );
 
     let file = fs::File::open(&path)
@@ -443,6 +445,7 @@ pub async fn youtube_mp3_handler(
     >,
     Json(request): Json<YoutubeAudioRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
+    info!("YouTube MP3 download requested");
     if !is_youtube_url(&request.url) {
         return Err(bad_request("Provide a valid YouTube video link."));
     }

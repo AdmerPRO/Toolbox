@@ -2,7 +2,6 @@ use axum::{http::StatusCode, response::Html};
 use tracing::info;
 
 pub async fn root_handler() -> Result<Html<String>, StatusCode> {
-    info!("Main site handler");
     page_handler("root").await
 }
 
@@ -49,6 +48,11 @@ pub fn privacy_email() -> Result<String, StatusCode> {
 }
 
 pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
+    let site = match page {
+        "root" => "Main".to_owned(),
+        _ => page.to_uppercase(),
+    };
+    info!("{site} site requested");
     let path = std::path::Path::new("frontend")
         .join(page)
         .join("index.html");
@@ -64,6 +68,7 @@ pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
 
 pub async fn sitemap_handler()
 -> Result<([(axum::http::HeaderName, &'static str); 1], String), StatusCode> {
+    info!("Sitemap requested");
     Ok((
         [(
             axum::http::header::CONTENT_TYPE,
@@ -76,6 +81,7 @@ pub async fn sitemap_handler()
 
 pub async fn robots_handler()
 -> Result<([(axum::http::HeaderName, &'static str); 1], String), StatusCode> {
+    info!("Robots.txt requested");
     Ok((
         [(
             axum::http::header::CONTENT_TYPE,

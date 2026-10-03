@@ -219,6 +219,7 @@ pub async fn image_handler(
     Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
+    tracing::info!("Image conversion requested");
     image_job(multipart, None, client_permit, uploader_ip).await
 }
 
@@ -234,6 +235,7 @@ pub async fn resize_handler(
     Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
+    tracing::info!("Image resize requested");
     if !(1..=4096).contains(&options.width) || !(1..=4096).contains(&options.height) {
         return Err(bad("Choose width and height between 1 and 4096 pixels."));
     }
@@ -296,6 +298,7 @@ pub async fn audio_handler(
     Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
+    tracing::info!("MP4 to MP3 conversion requested");
     video_job(multipart, false, uploader_ip).await
 }
 
@@ -303,6 +306,7 @@ pub async fn mute_handler(
     Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
+    tracing::info!("Video mute requested");
     video_job(multipart, true, uploader_ip).await
 }
 
