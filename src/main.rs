@@ -152,7 +152,10 @@ async fn main() -> Result<()> {
         limiter,
         rate_limit::middleware,
     ));
-    app = app.layer(axum::middleware::from_fn(security::headers));
+    app = app.layer(axum::middleware::from_fn_with_state(
+        security::SecurityHeaders::from_env()?,
+        security::headers,
+    ));
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
         .context("Failed connecting to address")?;

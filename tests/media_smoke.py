@@ -182,7 +182,7 @@ def main():
                 get("/storage/audit.sqlite3-wal",404)
                 with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
                     tracked = filename.rsplit(".",1)[0]
-                    record = database.execute("SELECT uploader_ip,original_size,stored_size,open_count,policy_version FROM files WHERE id=?",(tracked,)).fetchone()
+                    record = database.execute("SELECT uploader_ip,original_size,stored_size,request_count,policy_version FROM files WHERE id=?",(tracked,)).fetchone()
                     assert record[0] == "127.0.0.1", record
                     assert record[1] == len(video.read_bytes()), record
                     assert record[2] > 0 and record[3] == 1 and record[4] == "2026-10-03", record

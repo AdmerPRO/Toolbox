@@ -11,6 +11,8 @@ use std::{
 static DATABASE: OnceLock<Audit> = OnceLock::new();
 pub const POLICY_VERSION: &str = "2026-10-03";
 
+type FileSnapshot = (String, String, String, Option<String>);
+
 pub struct Audit {
     connection: Mutex<Connection>,
 }
@@ -54,7 +56,7 @@ impl Audit {
                 id TEXT PRIMARY KEY, file_type TEXT NOT NULL, uploaded_at TEXT NOT NULL,
                 uploader_ip TEXT, original_size INTEGER NOT NULL CHECK(original_size >= 0),
                 stored_size INTEGER NOT NULL CHECK(stored_size >= 0), archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
-                archived_at TEXT, deleted_at TEXT, open_count INTEGER NOT NULL DEFAULT 0 CHECK(open_count >= 0),
+                archived_at TEXT, deleted_at TEXT, request_count INTEGER NOT NULL DEFAULT 0 CHECK(request_count >= 0),
                 archive_path TEXT, policy_version TEXT
             );
             CREATE TABLE IF NOT EXISTS file_access (
@@ -69,6 +71,18 @@ impl Audit {
             CREATE INDEX IF NOT EXISTS files_archive ON files(archive_path);
             CREATE INDEX IF NOT EXISTS files_uploader ON files(uploader_ip);
             CREATE INDEX IF NOT EXISTS file_access_viewer ON file_access(viewer_ip);")?;
+        // Upgrade databases created before the counter was named accurately.
+        let has_old_counter: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('files') WHERE name='open_count')",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_old_counter {
+            connection
+                .execute_batch("ALTER TABLE files RENAME COLUMN open_count TO request_count;")?;
+        }
+        // Purge metadata retained by older versions after permanent deletion.
+        connection.execute("DELETE FROM files WHERE deleted_at IS NOT NULL", [])?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -250,7 +264,7 @@ impl Audit {
             .map_err(|_| anyhow::anyhow!("Audit lock poisoned"))?;
         let transaction = connection.transaction()?;
         let changed = transaction.execute(
-            "UPDATE files SET open_count=open_count+1 WHERE id=?1 AND deleted_at IS NULL",
+            "UPDATE files SET request_count=request_count+1 WHERE id=?1 AND deleted_at IS NULL",
             [id],
         )?;
         anyhow::ensure!(changed == 1, "File has no live audit record");
@@ -277,18 +291,20 @@ impl Audit {
     }
 
     pub fn archived_copy(&self, root: &Path, id: &str, source: &Path) -> Result<bool> {
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Audit lock poisoned"))?;
-        let archive: Option<String> = connection
-            .query_row(
-                "SELECT archive_path FROM files WHERE id=?1 AND deleted_at IS NULL",
-                [id],
-                |r| r.get(0),
-            )
-            .optional()?
-            .flatten();
+        let archive: Option<String> = {
+            let connection = self
+                .connection
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Audit lock poisoned"))?;
+            connection
+                .query_row(
+                    "SELECT archive_path FROM files WHERE id=?1 AND deleted_at IS NULL",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten()
+        };
         let Some(path) = archive else {
             return Ok(false);
         };
@@ -313,98 +329,65 @@ impl Audit {
         archive: &str,
         delete: impl FnOnce() -> Result<()>,
     ) -> Result<()> {
+        let records = self.records(Some(archive))?;
         let inventory = archive_inventory(root)?;
-        let mut connection = self
-            .connection
-            .lock()
-            .map_err(|_| anyhow::anyhow!("Audit lock poisoned"))?;
-        let records = {
-            let mut statement = connection.prepare("SELECT id,file_type,uploaded_at FROM files WHERE archive_path=?1 AND deleted_at IS NULL")?;
-            statement
-                .query_map([archive], |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, String>(2)?,
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        let transaction = connection.transaction()?;
-        for (id, kind, timestamp) in records {
-            if let Some((path, _)) = inventory
+        let mut changes = Vec::new();
+        for (id, kind, timestamp, _) in records {
+            let other = inventory
                 .iter()
                 .find(|(path, ids)| path.as_str() != archive && ids.contains(&id))
-            {
-                transaction.execute(
-                    "UPDATE files SET archive_path=?2 WHERE id=?1",
-                    params![id, path],
-                )?;
-            } else if active_exists(root, &id, &kind, &timestamp)? {
-                transaction.execute("UPDATE files SET archive_path=NULL WHERE id=?1", [&id])?;
-            } else {
-                transaction.execute("DELETE FROM file_access WHERE file_id=?1", [&id])?;
-                transaction.execute("DELETE FROM ip_uploads WHERE file_id=?1", [&id])?;
-                transaction.execute(
-                    "UPDATE files SET uploader_ip=NULL,deleted_at=?2 WHERE id=?1",
-                    params![id, now()],
-                )?;
-            }
+                .map(|(path, _)| path.clone());
+            let retained = other.is_some() || active_exists(root, &id, &kind, &timestamp)?;
+            changes.push((id, other, retained));
         }
+        // A slow or failed filesystem deletion must not lock out access logging.
         delete()?;
-        transaction.commit()?;
-        connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
-        Ok(())
+        self.apply_changes(changes)
     }
 
-    // Repair cleanup after a crash or an operator deleting files directly on disk.
     pub fn reconcile(&self, root: &Path) -> Result<()> {
+        let records = self.records(None)?;
         let inventory = archive_inventory(root)?;
+        let mut changes = Vec::new();
+        for (id, kind, timestamp, previous_archive) in records {
+            let archive = inventory
+                .iter()
+                .find(|(_, ids)| ids.contains(&id))
+                .map(|(path, _)| path.clone());
+            let retained = archive.is_some() || active_exists(root, &id, &kind, &timestamp)?;
+            if !retained || archive != previous_archive {
+                changes.push((id, archive, retained));
+            }
+        }
+        self.apply_changes(changes)
+    }
+
+    fn records(&self, archive: Option<&str>) -> Result<Vec<FileSnapshot>> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Audit lock poisoned"))?;
+        let mut statement = connection.prepare("SELECT id,file_type,uploaded_at,archive_path FROM files WHERE deleted_at IS NULL AND (?1 IS NULL OR archive_path=?1)")?;
+        Ok(statement
+            .query_map([archive], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    fn apply_changes(&self, changes: Vec<(String, Option<String>, bool)>) -> Result<()> {
+        // This critical section performs SQL only; media/ZIP work happens beforehand.
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| anyhow::anyhow!("Audit lock poisoned"))?;
-        let records = {
-            let mut statement = connection.prepare(
-                "SELECT id,file_type,uploaded_at,archive_path FROM files WHERE deleted_at IS NULL",
-            )?;
-            statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                    ))
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
         let transaction = connection.transaction()?;
-        for (id, kind, timestamp, archive) in records {
-            let exists = if let Some(archive) = archive {
-                // An archive may have committed before active originals were removed.
-                inventory.get(&archive).is_some_and(|ids| ids.contains(&id))
-                    || active_exists(root, &id, &kind, &timestamp)?
+        for (id, archive, retained) in changes {
+            if retained {
+                transaction.execute("UPDATE files SET archive_path=?2,archived=CASE WHEN ?2 IS NOT NULL THEN 1 ELSE archived END WHERE id=?1 AND deleted_at IS NULL",params![id,archive])?;
             } else {
-                active_exists(root, &id, &kind, &timestamp)?
-            };
-            let other_archive = inventory
-                .iter()
-                .find(|(_, ids)| ids.contains(&id))
-                .map(|(path, _)| path);
-            if let Some(path) = other_archive {
-                transaction.execute(
-                    "UPDATE files SET archive_path=?2,archived=1 WHERE id=?1",
-                    params![id, path],
-                )?;
-            }
-            if !exists && other_archive.is_none() {
-                transaction.execute("DELETE FROM file_access WHERE file_id=?1", [&id])?;
-                transaction.execute("DELETE FROM ip_uploads WHERE file_id=?1", [&id])?;
-                transaction.execute(
-                    "UPDATE files SET uploader_ip=NULL,deleted_at=?2 WHERE id=?1",
-                    params![id, now()],
-                )?;
+                // Foreign-key cascades remove all associated uploader/viewer IP rows.
+                transaction.execute("DELETE FROM files WHERE id=?1", [id])?;
             }
         }
         transaction.commit()?;
@@ -495,6 +478,74 @@ mod tests {
         )
     }
     #[test]
+    fn migrates_existing_counter_and_purges_deleted_metadata() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("audit.sqlite3");
+        {
+            let audit = Audit::open(&path)?;
+            add(&audit, "live")?;
+            add(&audit, "deleted")?;
+            audit.access("live", "198.51.100.1".parse()?)?;
+            let connection = audit.connection.lock().unwrap();
+            connection.execute(
+                "UPDATE files SET deleted_at='2026-10-03T12:00:00Z' WHERE id='deleted'",
+                [],
+            )?;
+            connection
+                .execute_batch("ALTER TABLE files RENAME COLUMN request_count TO open_count;")?;
+        }
+        let audit = Audit::open(&path)?;
+        let connection = audit.connection.lock().unwrap();
+        assert_eq!(
+            connection.query_row("SELECT request_count FROM files WHERE id='live'", [], |r| r
+                .get::<_, i64>(0))?,
+            1
+        );
+        assert_eq!(
+            connection.query_row("SELECT count(*) FROM files WHERE id='deleted'", [], |r| r
+                .get::<_, i64>(
+                0
+            ))?,
+            0
+        );
+        assert_eq!(
+            connection.query_row(
+                "SELECT count(*) FROM ip_uploads WHERE file_id='deleted'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?,
+            0
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn slow_archive_deletion_does_not_block_access_logging() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let audit = std::sync::Arc::new(Audit::open(&root.path().join("audit.sqlite3"))?);
+        add(&audit, "archived")?;
+        add(&audit, "downloadable")?;
+        audit.archived(&["archived".into()], "archives/test.zip")?;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let other = audit.clone();
+        let audit_during_delete = move || -> Result<()> {
+            let thread = std::thread::spawn(move || {
+                sender
+                    .send(other.access("downloadable", "198.51.100.1".parse().unwrap()))
+                    .unwrap();
+            });
+            let result = receiver
+                .recv_timeout(Duration::from_secs(2))
+                .context("Audit lock held during archive deletion")?;
+            result?;
+            thread.join().unwrap();
+            Ok(())
+        };
+        audit.delete_archive(root.path(), "archives/test.zip", audit_during_delete)?;
+        Ok(())
+    }
+
+    #[test]
     fn access_counts_and_atomic_ip_cleanup() -> Result<()> {
         let root = tempfile::tempdir()?;
         let audit = Audit::open(&root.path().join("audit.sqlite3"))?;
@@ -506,8 +557,11 @@ mod tests {
         {
             let connection = audit.connection.lock().unwrap();
             assert_eq!(
-                connection.query_row("SELECT open_count FROM files WHERE id='file1'", [], |r| r
-                    .get::<_, i64>(0))?,
+                connection.query_row(
+                    "SELECT request_count FROM files WHERE id='file1'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )?,
                 3
             );
             assert_eq!(
@@ -554,19 +608,11 @@ mod tests {
                 )?,
                 1
             );
-            assert!(
+            assert_eq!(
                 connection
-                    .query_row("SELECT uploader_ip FROM files WHERE id='file1'", [], |r| {
-                        r.get::<_, Option<String>>(0)
-                    })?
-                    .is_none()
-            );
-            assert!(
-                connection
-                    .query_row("SELECT deleted_at FROM files WHERE id='file1'", [], |r| {
-                        r.get::<_, Option<String>>(0)
-                    })?
-                    .is_some()
+                    .query_row("SELECT count(*) FROM files WHERE id='file1'", [], |r| r
+                        .get::<_, i64>(0))?,
+                0
             );
         }
         audit.archived(&["file2".into()], "archives/other.zip")?;

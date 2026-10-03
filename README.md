@@ -118,7 +118,11 @@ starts; insufficient capacity leaves originals intact for the next attempt.
 Set `UPLOAD_TIMEOUT_SECONDS` (1-3600) to change the complete multipart upload deadline.
 
 Every response carries CSP, nosniff, frame denial, referrer and permissions
-policies. CSP permits scripts/styles from this origin and YouTube thumbnails
+policies. Optional `HSTS_MAX_AGE_SECONDS` (0-31536000, default 0) adds
+`Strict-Transport-Security` when explicitly enabled with an HTTPS `SITE_URL`.
+It covers this hostname only, without includeSubDomains/preload. Behind a local
+HTTP Tunnel origin the public HTTPS response still carries the configured header;
+browsers ignore HSTS received over HTTP. Align its value with Cloudflare HSTS. CSP permits scripts/styles from this origin and YouTube thumbnails
 from `i.ytimg.com` / `img.youtube.com`. API responses use `private, no-store`.
 
 See [deployment/security.md](deployment/security.md) for the hardened Linux
@@ -134,26 +138,34 @@ HTTP. The three tables are:
 
 | Table | Records |
 | --- | --- |
-| `files` | Result UUID/type, UTC upload or YouTube job-start timestamp, uploader IP, input/result sizes in bytes, archive/deletion times, aggregate accepted download count |
+| `files` | Result UUID/type, UTC upload or YouTube job-start timestamp, uploader IP, input/result sizes in bytes, archive timestamps, aggregate accepted download count |
 | `file_access` | One row per result UUID and viewer IP, first/last access timestamp, cumulative request count |
 | `ip_uploads` | One row linking each live file to its uploader IP and upload timestamp |
 
 `files.archive_path` associates a file with its ZIP for lifecycle cleanup;
-`files.policy_version` records the policy version acknowledged by the request.
+`files.policy_version` records the version claimed by the request cookie.
+It is not independently verified proof that a human read or accepted the policy.
+Existing `open_count` columns are migrated to `request_count` without losing
+counts. Metadata retained for deleted files by older versions is purged.
 The IP resolver is shared with rate limiting, including trusted Cloudflare
 headers. Download counts record accepted GET/HEAD requests, not proof of viewing
 or completed transfers. Missing, invalid and expired downloads are not counted.
-YouTube requests use the requester's IP; input size describes retained downloads
-rather than a browser upload. Separate YouTube inputs are kept when available.
+YouTube requests use the requester's IP. Only the final YouTube result is retained;
+merge/audio intermediates are removed before publication. `original_size` is 0
+for YouTube jobs because no file was uploaded by the browser. Browser uploads
+retain their original file and accurate input size.
 
 Successful publication and audit insertion are coordinated using a transaction
 and filesystem rollback on commit failure. Database failures prevent publication
 or download rather than silently omit a record. Maintenance archives whole job
 folders only after every file is old enough; finalized archives keep audit IPs.
-Deleting the final retained archive clears uploader IP, viewer access rows and
-upload index rows. Metadata without IP remains with `deleted_at`. Other files
+Deleting the final retained copy removes the entire `files` row and cascades
+to viewer access and upload-index rows. No deleted-file metadata is retained.
+Other files
 uploaded by the same IP keep their records; there is no separate IP registry.
-Startup/hourly reconciliation also handles manual filesystem deletions. Existing
+Startup/hourly reconciliation also handles manual filesystem deletions.
+ZIP reads, filesystem scans and archive deletion run outside the audit DB lock;
+short database transactions remain serialized. Existing
 files are imported with unknown uploader IP and approximate historical times;
 old records cannot reconstruct past access counts. No names, video titles or
 submitted URLs are recorded in this database.
@@ -161,8 +173,9 @@ submitted URLs are recorded in this database.
 All public pages display a privacy acceptance dialog on first visit. Declining
 keeps public pages and the full policy readable while disabling media tools.
 Media POST endpoints require `privacy_policy=2026-10-03`, otherwise HTTP 428.
-The version cookie lasts one year and is not an authentication credential or
-proof of identity. Policy changes require updating the version in `src/audit.rs`,
+The unsigned version cookie lasts one year and can be set manually. It is a
+browser preference, not an authentication credential, proof of identity, or
+reliable evidence that a person read the policy. Policy changes require updating the version in `src/audit.rs`,
 `frontend/shared/privacy.js`, `frontend/root/script.js`, the policy and tests.
 `PRIVACY_CONTACT_EMAIL` configures the contact address displayed in the policy;
 default: `admin@tools.admerpro.com`. The policy explains administrator review of
@@ -181,7 +194,7 @@ sqlite3 -readonly storage/audit.sqlite3
 
 ```sql
 SELECT id, file_type, uploaded_at, uploader_ip, original_size, stored_size,
-       archived, archived_at, deleted_at, open_count, archive_path
+       archived, archived_at, deleted_at, request_count, archive_path
 FROM files ORDER BY uploaded_at DESC;
 SELECT * FROM file_access WHERE file_id = 'FILE_UUID';
 SELECT * FROM ip_uploads WHERE ip = 'CLIENT_IP';

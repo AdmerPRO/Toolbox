@@ -107,3 +107,8 @@ Backups must be protected and follow deletion/retention procedures; automatic
 live-database cleanup does not erase off-host copies. SQLite uses secure_delete
 and checkpoints after cleanup; filesystem snapshots and physical media recovery
 are outside the application's logical deletion guarantees.
+
+Application HSTS is optional: set `HSTS_MAX_AGE_SECONDS` only after the public
+hostname supports HTTPS and `SITE_URL` uses HTTPS. Default 0 omits the header.
+The application adds neither includeSubDomains nor preload. Align application
+and Cloudflare header policies; client cookies/forwarded headers do not enable HSTS.

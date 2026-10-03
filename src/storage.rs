@@ -169,20 +169,7 @@ pub fn publish(work: &Staging, output: &str, uploader_ip: std::net::IpAddr) -> R
     fs::create_dir_all(&directory)?;
     let destination = directory.join(id);
     let stored_size = fs::metadata(work.path().join(output))?.len();
-    let original_size =
-        fs::read_dir(work.path())?.try_fold(0u64, |size, entry| -> Result<u64> {
-            let entry = entry?;
-            Ok(if entry.file_name() != output {
-                size + entry.metadata()?.len()
-            } else {
-                size
-            })
-        })?;
-    let original_size = if original_size == 0 {
-        stored_size
-    } else {
-        original_size
-    };
+    let original_size = original_size(work.path(), output)?;
     crate::audit::database()?.publish(
         &crate::audit::FileRecord {
             id,
@@ -203,6 +190,40 @@ pub fn publish(work: &Staging, output: &str, uploader_ip: std::net::IpAddr) -> R
         },
     )?;
     Ok(format!("/api/files/{date}/{output}"))
+}
+
+fn original_size(directory: &Path, output: &str) -> Result<u64> {
+    fs::read_dir(directory)?.try_fold(0u64, |size, entry| -> Result<u64> {
+        let entry = entry?;
+        Ok(if entry.file_name() != output {
+            size + entry.metadata()?.len()
+        } else {
+            size
+        })
+    })
+}
+
+// YouTube inputs are transient download/merge intermediates, unlike browser uploads.
+pub async fn publish_youtube(
+    work: Staging,
+    output: String,
+    uploader_ip: std::net::IpAddr,
+) -> Result<String> {
+    tokio::task::spawn_blocking(move || {
+        for entry in fs::read_dir(work.path())? {
+            let entry = entry?;
+            if entry.file_name() == output.as_str() {
+                continue;
+            }
+            if entry.file_type()?.is_dir() {
+                fs::remove_dir(entry.path())?;
+            } else {
+                fs::remove_file(entry.path())?;
+            }
+        }
+        publish(&work, &output, uploader_ip)
+    })
+    .await?
 }
 
 fn valid_filename(filename: &str) -> bool {
@@ -521,6 +542,18 @@ mod tests {
     use std::io::Read;
 
     #[test]
+    fn publication_counts_only_browser_originals() -> Result<()> {
+        // No upload input exists for a YouTube-only result.
+        let root = tempfile::tempdir()?;
+        fs::write(root.path().join("result.mp4"), b"result")?;
+        let size = original_size(root.path(), "result.mp4")?;
+        assert_eq!(size, 0);
+        fs::write(root.path().join("source.mp4"), b"browser input")?;
+        assert_eq!(original_size(root.path(), "result.mp4")?, 13);
+        Ok(())
+    }
+
+    #[test]
     fn audit_follows_archive_and_deletion_lifecycle() -> Result<()> {
         let root = tempfile::tempdir()?;
         let database_path = root.path().join("audit.sqlite3");
@@ -587,12 +620,10 @@ mod tests {
                 .get::<_, i64>(0))?,
             0
         );
-        assert!(
-            connection
-                .query_row("SELECT uploader_ip FROM files WHERE id=?1", [&id], |r| {
-                    r.get::<_, Option<String>>(0)
-                })?
-                .is_none()
+        assert_eq!(
+            connection.query_row("SELECT count(*) FROM files WHERE id=?1", [&id], |r| r
+                .get::<_, i64>(0))?,
+            0
         );
         Ok(())
     }

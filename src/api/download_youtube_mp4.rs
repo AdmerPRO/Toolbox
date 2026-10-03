@@ -17,7 +17,6 @@ fn download_options(command: &mut Command) -> &mut Command {
         "--ignore-config",
         "--no-plugin-dirs",
         "--no-playlist",
-        "--keep-video",
         "--socket-timeout",
         "30",
         "--max-filesize",
@@ -312,7 +311,7 @@ pub async fn download_youtube_mp4(
     check_download(&output_path)
         .await
         .map_err(|(_, message)| message)?;
-    Ok(crate::storage::publish(&work, &filename, uploader_ip)?)
+    Ok(crate::storage::publish_youtube(work, filename, uploader_ip).await?)
 }
 
 pub async fn download_file_handler(
@@ -448,13 +447,15 @@ pub async fn youtube_mp3_handler(
     }
     check_download(&path).await?;
     Ok(Json(YoutubeDownload {
-        download_url: crate::storage::publish(&work, &filename, uploader_ip).map_err(|error| {
-            tracing::error!(%error, "Cannot publish audio");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Could not store the audio file.".into(),
-            )
-        })?,
+        download_url: crate::storage::publish_youtube(work, filename, uploader_ip)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "Cannot publish audio");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Could not store the audio file.".into(),
+                )
+            })?,
     }))
 }
 
