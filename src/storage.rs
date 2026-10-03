@@ -231,7 +231,17 @@ fn valid_filename(filename: &str) -> bool {
         uuid::Uuid::parse_str(id).is_ok()
             && matches!(
                 ext,
-                "png" | "jpg" | "jpeg" | "webp" | "ico" | "bmp" | "tif" | "tiff" | "mp3" | "mp4"
+                "png"
+                    | "jpg"
+                    | "jpeg"
+                    | "gif"
+                    | "webp"
+                    | "ico"
+                    | "bmp"
+                    | "tif"
+                    | "tiff"
+                    | "mp3"
+                    | "mp4"
             )
     })
 }
@@ -273,6 +283,7 @@ pub async fn download_handler(
         "mp3" => "audio/mpeg",
         "mp4" => "video/mp4",
         "png" => "image/png",
+        "gif" => "image/gif",
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "bmp" => "image/bmp",

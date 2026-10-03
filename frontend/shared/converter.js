@@ -29,7 +29,7 @@ form.addEventListener('submit', async event => {
         message(`Choose a non-empty file up to ${audio ? 200 : 20} MiB.`, true); return;
     }
     const extension = selected.name.split('.').pop().toLowerCase();
-    if (!(audio ? ['mp4'] : ['png', 'jpg', 'jpeg', 'webp', 'ico', 'bmp', 'tif', 'tiff']).includes(extension)) {
+    if (!(audio ? ['mp4'] : ['png', 'jpg', 'jpeg', 'webp', 'ico', 'bmp', 'tif', 'tiff', 'gif']).includes(extension)) {
         message('Choose a supported file type.', true); return;
     }
     const data = new FormData(form);

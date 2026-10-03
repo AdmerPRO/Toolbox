@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Generator | Tool Box</title>
+    <link rel="stylesheet" href="/root/style.css">
+    <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
+    <meta name="description" content="Generate a QR code from text or a URL. Preview and download a free PNG QR code.">
+    <link rel="canonical" href="https://tools.admerpro.com/qr/">
+</head>
+<body data-tool="qr">
+    <div class="shell">
+        <header class="site-header">
+            <a class="brand" href="/"><img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">Tool Box</a>
+            <nav class="main-nav" aria-label="Main navigation">
+                    <a href="/">All tools</a>
+                    <a href="/images/">Convert images</a>
+                    <a href="/qr/" aria-current="page">QR generator</a>
+                    <a href="/resize/">Resize images</a>
+                    <a href="/mp4tomp3/">Extract audio</a>
+                    <a href="/mute/">Mute video</a>
+                    <a href="/youtubemp4/">YouTube MP4</a>
+                    <a href="/youtubemp3/">YouTube MP3</a>
+                    <a href="/privacy/">Privacy</a>
+                </nav>
+        </header>
+        <main class="downloader">
+            <a class="back-link" href="/">&#8592; Back to all tools</a>
+            <h1>QR code <span>generator</span></h1>
+            <p class="lead">Turn text or a URL into a QR code and save it as a PNG.</p>
+            <div class="panel">
+                <form id="qr-form" action="/api/qr" method="post">
+                    <label for="qr-text">Text or URL</label>
+                    <textarea id="qr-text" name="text" rows="5" maxlength="2000" placeholder="https://example.com" required></textarea>
+                    <p class="hint">Up to 2000 UTF-8 bytes. Your text is processed to generate the code and is not stored. A QR code containing a URL does not shorten it.</p>
+                    <button type="submit">Generate QR code &#8594;</button>
+                </form>
+                <p id="status" class="status" role="status" aria-live="polite"></p>
+                <img id="qr-preview" alt="Generated QR code" width="256" height="256" hidden>
+                <a id="download-link" class="download-link" hidden download="qr-code.png">Save QR code &#8595;</a>
+            </div>
+        </main>
+        <footer><span>Free &amp; ad-free.</span><a href="/privacy/">Privacy policy</a></footer>
+    </div>
+    <script src="/qr/script.js" defer></script>
+
+</body>
+</html>

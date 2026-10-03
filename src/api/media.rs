@@ -31,6 +31,7 @@ fn internal(error: impl std::fmt::Display) -> Error {
 fn format(extension: &str) -> Option<ImageFormat> {
     match extension {
         "png" => Some(ImageFormat::Png),
+        "gif" => Some(ImageFormat::Gif),
         "jpg" | "jpeg" => Some(ImageFormat::Jpeg),
         "webp" => Some(ImageFormat::WebP),
         "ico" => Some(ImageFormat::Ico),
@@ -93,7 +94,7 @@ async fn receive_inner(
                     .map_err(|_| bad("Invalid output format."))?
                     .to_ascii_lowercase();
                 if format(&value).is_none() {
-                    return Err(bad("Choose PNG, JPG, JPEG, WebP, ICO, BMP, or TIFF."));
+                    return Err(bad("Choose PNG, JPG, JPEG, GIF, WebP, ICO, BMP, or TIFF."));
                 }
                 selection = Some(value);
             }
@@ -167,6 +168,7 @@ fn convert_image_sized(
             reader.format(),
             Some(
                 ImageFormat::Png
+                    | ImageFormat::Gif
                     | ImageFormat::Jpeg
                     | ImageFormat::WebP
                     | ImageFormat::Ico
@@ -476,7 +478,7 @@ mod tests {
         let source = DynamicImage::new_rgba8(300, 280);
         let mut png = Cursor::new(Vec::new());
         source.write_to(&mut png, ImageFormat::Png).unwrap();
-        for extension in ["png", "jpg", "jpeg", "webp", "ico", "bmp", "tiff"] {
+        for extension in ["png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "tiff"] {
             let encoded = convert_image(png.get_ref(), extension).unwrap();
             let decoded = image::load_from_memory(&encoded).unwrap();
             if extension == "ico" {
@@ -489,6 +491,21 @@ mod tests {
             }
             assert!(convert_image(&encoded, "png").is_ok());
         }
+    }
+
+    #[test]
+    fn animated_gif_converts_first_frame() {
+        let first = image::RgbaImage::from_pixel(8, 8, image::Rgba([255, 0, 0, 255]));
+        let second = image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 255, 255]));
+        let mut gif = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut gif);
+            encoder.encode_frame(image::Frame::new(first)).unwrap();
+            encoder.encode_frame(image::Frame::new(second)).unwrap();
+        }
+        let png = convert_image(&gif, "png").unwrap();
+        let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(decoded.get_pixel(0, 0).0, [255, 0, 0, 255]);
     }
 
     #[test]

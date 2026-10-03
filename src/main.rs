@@ -52,6 +52,15 @@ async fn main() -> Result<()> {
     root::privacy_email().map_err(|_| anyhow::anyhow!("Invalid PRIVACY_CONTACT_EMAIL"))?;
     let limiter = rate_limit::RateLimiter::from_env()?;
     let mut app = Router::new()
+        .route("/qr/", get(|| async { root::page_handler("qr").await }))
+        .route(
+            "/qr",
+            get(|| async { axum::response::Redirect::permanent("/qr/") }),
+        )
+        .route(
+            "/api/qr",
+            post(api::qr::qr_handler).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/sitemap.xml", get(root::sitemap_handler))
         .route("/robots.txt", get(root::robots_handler))
         .route(
@@ -135,6 +144,7 @@ async fn main() -> Result<()> {
 
     for (page, destination) in [
         ("root", "/"),
+        ("qr", "/qr/"),
         ("images", "/images/"),
         ("resize", "/resize/"),
         ("mp4tomp3", "/mp4tomp3/"),

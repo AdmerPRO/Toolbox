@@ -58,6 +58,7 @@ sha = "1.0.3"
 
 # Image processing
 image = "0.25"
+qrcode = { version = "0.14.1", default-features = false, features = ["image"] }
 
 # Concurrent data structures
 dashmap = "6"

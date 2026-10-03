@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Format Converter - PNG, JPG, WebP, ICO, BMP &amp; TIFF | Tool Box</title>
+    <title>Image Format Converter - PNG, JPG, GIF, WebP, ICO, BMP &amp; TIFF | Tool Box</title>
     <link rel="stylesheet" href="/root/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
-    <meta name="description" content="Convert images between PNG, JPG, JPEG, WebP, ICO, BMP, and TIFF with Tool Box. Free image format conversion with no sign-up required.">
+    <meta name="description" content="Convert images between PNG, JPG, JPEG, GIF, WebP, ICO, BMP, and TIFF with Tool Box. Free image format conversion with no sign-up required.">
     <link rel="canonical" href="https://tools.admerpro.com/images/">
     <link rel="stylesheet" href="/shared/privacy.css">
     <script src="/shared/privacy.js" defer></script>
@@ -18,6 +18,7 @@
             <nav class="main-nav" aria-label="Main navigation">
                     <a href="/">All tools</a>
                     <a href="/images/" aria-current="page">Convert images</a>
+                    <a href="/qr/">QR generator</a>
                     <a href="/resize/">Resize images</a>
                     <a href="/mp4tomp3/">Extract audio</a>
                     <a href="/mute/">Mute video</a>
@@ -29,18 +30,18 @@
         <main class="downloader">
             <a class="back-link" href="/">&#8592; Back to all tools</a>
             <h1>Image format <span>converter</span></h1>
-            <p class="lead">Switch between PNG, JPG, JPEG, WebP, ICO, BMP, and TIFF.</p>
+            <p class="lead">Switch between PNG, JPG, JPEG, GIF, WebP, ICO, BMP, and TIFF.</p>
             <div class="panel">
                 <form id="convert-form" action="/api/convert/image" method="post" enctype="multipart/form-data">
                     <label for="file">Choose an image</label>
-                    <input id="file" name="file" type="file" accept=".png,.jpg,.jpeg,.webp,.ico,.bmp,.tif,.tiff" required>
+                    <input id="file" name="file" type="file" accept=".png,.jpg,.jpeg,.webp,.ico,.bmp,.tif,.tiff,.gif" required>
                     <p class="hint">Up to 20 MiB and 4096 x 4096 pixels. One image at a time.</p>
                     <label for="format">Convert to</label>
                     <select id="format" name="format">
                         <option value="png">PNG</option><option value="jpg">JPG</option>
-                        <option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="ico">ICO</option><option value="bmp">BMP</option><option value="tiff">TIFF</option>
+                        <option value="gif">GIF</option><option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="ico">ICO</option><option value="bmp">BMP</option><option value="tiff">TIFF</option>
                     </select>
-                    <p class="hint">JPG and JPEG use the same format and replace transparency with white. ICO fits within 256 x 256 pixels. WebP output is lossless. Only the first frame or icon is converted.</p>
+                    <p class="hint">JPG and JPEG use the same format and replace transparency with white. ICO fits within 256 x 256 pixels. WebP output is lossless. GIF output is a static image. Animated GIF input is converted using its first frame. Only the first frame or icon is converted.</p>
                     <p class="hint">Your original and converted files are stored for 7 days, then moved into ZIP archives deleted 30 days after creation. <a href="/privacy/">Read the privacy policy</a> before uploading.</p>
                     <button type="submit">Convert image &#8594;</button>
                 </form>
