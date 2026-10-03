@@ -126,6 +126,77 @@ service, Cloudflare Tunnel, HSTS, edge rate limiting, and maintenance steps.
 The service and Cloudflare settings must be installed on the deployment host;
 changing this repository does not activate them on an existing server.
 
+## Private file audit database and privacy acknowledgement
+
+The application automatically creates `storage/audit.sqlite3` (SQLite, bundled
+with the executable, no separate database server needed). It is not served by
+HTTP. The three tables are:
+
+| Table | Records |
+| --- | --- |
+| `files` | Result UUID/type, UTC upload or YouTube job-start timestamp, uploader IP, input/result sizes in bytes, archive/deletion times, aggregate accepted download count |
+| `file_access` | One row per result UUID and viewer IP, first/last access timestamp, cumulative request count |
+| `ip_uploads` | One row linking each live file to its uploader IP and upload timestamp |
+
+`files.archive_path` associates a file with its ZIP for lifecycle cleanup;
+`files.policy_version` records the policy version acknowledged by the request.
+The IP resolver is shared with rate limiting, including trusted Cloudflare
+headers. Download counts record accepted GET/HEAD requests, not proof of viewing
+or completed transfers. Missing, invalid and expired downloads are not counted.
+YouTube requests use the requester's IP; input size describes retained downloads
+rather than a browser upload. Separate YouTube inputs are kept when available.
+
+Successful publication and audit insertion are coordinated using a transaction
+and filesystem rollback on commit failure. Database failures prevent publication
+or download rather than silently omit a record. Maintenance archives whole job
+folders only after every file is old enough; finalized archives keep audit IPs.
+Deleting the final retained archive clears uploader IP, viewer access rows and
+upload index rows. Metadata without IP remains with `deleted_at`. Other files
+uploaded by the same IP keep their records; there is no separate IP registry.
+Startup/hourly reconciliation also handles manual filesystem deletions. Existing
+files are imported with unknown uploader IP and approximate historical times;
+old records cannot reconstruct past access counts. No names, video titles or
+submitted URLs are recorded in this database.
+
+All public pages display a privacy acceptance dialog on first visit. Declining
+keeps public pages and the full policy readable while disabling media tools.
+Media POST endpoints require `privacy_policy=2026-10-03`, otherwise HTTP 428.
+The version cookie lasts one year and is not an authentication credential or
+proof of identity. Policy changes require updating the version in `src/audit.rs`,
+`frontend/shared/privacy.js`, `frontend/root/script.js`, the policy and tests.
+`PRIVACY_CONTACT_EMAIL` configures the contact address displayed in the policy;
+default: `admin@tools.admerpro.com`. The policy explains administrator review of
+uploads/results/archives for abuse investigation and lawful requests. Operators
+must confirm their controller identity, legal basis, infrastructure log retention
+and backup/deletion procedures for their own deployment before publishing.
+
+### Administrator inspection
+
+Review the database and retained media locally on the host, with a trusted
+SQLite client. There is no public administrator API. For example:
+
+```sh
+sqlite3 -readonly storage/audit.sqlite3
+```
+
+```sql
+SELECT id, file_type, uploaded_at, uploader_ip, original_size, stored_size,
+       archived, archived_at, deleted_at, open_count, archive_path
+FROM files ORDER BY uploaded_at DESC;
+SELECT * FROM file_access WHERE file_id = 'FILE_UUID';
+SELECT * FROM ip_uploads WHERE ip = 'CLIENT_IP';
+```
+
+Active originals/results are under `storage/active/DDMMYYYY/FILE_UUID/`;
+archived content is located by `archive_path`. Limit host/database access to the
+administrator, and avoid public reports containing private links or IPs. Review
+untrusted media with the service's isolation in mind. For manual removal, delete
+all originals/results and archive copies for the affected file; let reconciliation
+clear IP records at the next maintenance run. A shared ZIP may contain other
+files: do not delete it wholesale for a request concerning only one file. Rebuild
+that ZIP excluding the affected job instead. Backups and provider logs require
+separate operator deletion procedures.
+
 ## Checks
 
 GitHub Actions builds and tests the project on Windows, macOS, Ubuntu, and
@@ -184,6 +255,8 @@ typos
 python -m unittest discover -s tests -p "test_release*.py"
 node --check frontend/shared/downloader.js
 node --check frontend/shared/converter.js
+node --check frontend/shared/privacy.js
+node --test tests/privacy.test.cjs
 cargo build --locked
 python tests/media_smoke.py --binary target/debug/admersite
 ```

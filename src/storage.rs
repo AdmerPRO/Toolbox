@@ -127,6 +127,7 @@ pub fn check_capacity() -> Result<()> {
 
 pub struct Staging {
     directory: tempfile::TempDir,
+    uploaded_at: String,
     _reservation: Reservation,
 }
 impl Staging {
@@ -140,6 +141,7 @@ fn staging(bytes: u64) -> Result<Staging> {
     fs::create_dir_all("storage/staging")?;
     Ok(Staging {
         directory: tempfile::tempdir_in("storage/staging")?,
+        uploaded_at: crate::audit::now(),
         _reservation: reservation,
     })
 }
@@ -157,13 +159,49 @@ pub fn check_free_space(root: &Path) -> Result<()> {
 }
 
 // Publish only completed work. The renamed job folder contains originals and results.
-pub fn publish(work: &Path, output: &str) -> Result<String> {
+pub fn publish(work: &Staging, output: &str, uploader_ip: std::net::IpAddr) -> Result<String> {
     check_capacity()?;
-    let date = Utc::now().format("%d%m%Y").to_string();
-    let (id, _) = output.rsplit_once('.').context("Invalid output filename")?;
+    let date = chrono::DateTime::parse_from_rfc3339(&work.uploaded_at)?
+        .format("%d%m%Y")
+        .to_string();
+    let (id, kind) = output.rsplit_once('.').context("Invalid output filename")?;
     let directory = Path::new("storage/active").join(&date);
     fs::create_dir_all(&directory)?;
-    fs::rename(work, directory.join(id))?;
+    let destination = directory.join(id);
+    let stored_size = fs::metadata(work.path().join(output))?.len();
+    let original_size =
+        fs::read_dir(work.path())?.try_fold(0u64, |size, entry| -> Result<u64> {
+            let entry = entry?;
+            Ok(if entry.file_name() != output {
+                size + entry.metadata()?.len()
+            } else {
+                size
+            })
+        })?;
+    let original_size = if original_size == 0 {
+        stored_size
+    } else {
+        original_size
+    };
+    crate::audit::database()?.publish(
+        &crate::audit::FileRecord {
+            id,
+            file_type: kind,
+            uploaded_at: &work.uploaded_at,
+            uploader_ip: Some(uploader_ip),
+            original_size,
+            stored_size,
+        },
+        || {
+            fs::rename(work.path(), &destination)?;
+            Ok(())
+        },
+        || {
+            if let Err(error) = fs::rename(&destination, work.path()) {
+                tracing::error!(%error,"Cannot roll back publication");
+            }
+        },
+    )?;
     Ok(format!("/api/files/{date}/{output}"))
 }
 
@@ -179,6 +217,9 @@ fn valid_filename(filename: &str) -> bool {
 
 pub async fn download_handler(
     RoutePath((date, filename)): RoutePath<(String, String)>,
+    axum::Extension(crate::rate_limit::ClientIp(viewer_ip)): axum::Extension<
+        crate::rate_limit::ClientIp,
+    >,
 ) -> Result<Response, StatusCode> {
     if !valid_date(&date) || !valid_filename(&filename) {
         return Err(StatusCode::BAD_REQUEST);
@@ -216,6 +257,12 @@ pub async fn download_handler(
         "tif" | "tiff" => "image/tiff",
         _ => "image/x-icon",
     };
+    crate::audit::access(id.to_owned(), viewer_ip)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Cannot audit file access");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
     Response::builder()
         .header(header::CONTENT_TYPE, mime)
         .header(header::CONTENT_LENGTH, metadata.len())
@@ -235,7 +282,10 @@ pub fn start_archiver() {
         loop {
             interval.tick().await;
             match tokio::task::spawn_blocking(|| {
-                archive_expired(Path::new("storage"), SystemTime::now())
+                let audit = crate::audit::database()?;
+                audit.import_storage(Path::new("storage"))?;
+                audit.reconcile(Path::new("storage"))?;
+                archive_expired(Path::new("storage"), SystemTime::now(), Some(audit))
             })
             .await
             {
@@ -272,8 +322,22 @@ fn copy_archive_file(
     }
 }
 
-fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
-    delete_expired_archives(root, now)?;
+fn file_id(path: &Path) -> Option<String> {
+    let name = path.file_stem()?.to_str()?;
+    if let Ok(id) = uuid::Uuid::parse_str(name) {
+        return Some(id.to_string());
+    }
+    uuid::Uuid::parse_str(path.parent()?.file_name()?.to_str()?)
+        .ok()
+        .map(|id| id.to_string())
+}
+
+fn archive_expired(
+    root: &Path,
+    now: SystemTime,
+    audit: Option<&crate::audit::Audit>,
+) -> Result<()> {
+    delete_expired_archives(root, now, audit)?;
     let mut groups: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
     // Also archive files produced by older versions of the application.
     for area in ["active", "ytmp3", "ytmp4"] {
@@ -285,6 +349,26 @@ fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
             let entry = entry?;
             if !entry.file_type().is_file() {
                 continue;
+            }
+            if let Some(audit) = audit
+                && let Some(id) = file_id(entry.path())
+                && audit.archived_copy(root, &id, entry.path())?
+            {
+                // Retry removal only when this exact source entry is in a finalized ZIP.
+                fs::remove_file(entry.path())?;
+                continue;
+            }
+            if area == "active" {
+                let parent = entry.path().parent().context("Missing job folder")?;
+                if fs::read_dir(parent)?.try_fold(false, |recent, file| -> Result<bool> {
+                    Ok(recent
+                        || now
+                            .duration_since(file?.metadata()?.modified()?)
+                            .unwrap_or_default()
+                            < RETENTION)
+                })? {
+                    continue;
+                }
             }
             let modified = entry.metadata()?.modified()?;
             if now.duration_since(modified).unwrap_or_default() < RETENTION {
@@ -344,7 +428,23 @@ fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
                 std::io::copy(&mut archive.by_index(index)?, &mut std::io::sink())?;
             }
         }
-        temporary.persist(destination.join(format!("{}.zip", uuid::Uuid::new_v4())))?;
+        let archive_path = destination.join(format!("{}.zip", uuid::Uuid::new_v4()));
+        temporary.persist(&archive_path)?;
+        if let Some(audit) = audit {
+            let ids = files
+                .iter()
+                .filter_map(|path| file_id(path))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            audit.archived(
+                &ids,
+                &archive_path
+                    .strip_prefix(root)?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            )?;
+        }
         for path in files {
             fs::remove_file(&path)?;
             // Remove empty job/day folders only; active work is never removed recursively.
@@ -361,7 +461,11 @@ fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
     Ok(())
 }
 
-fn delete_expired_archives(root: &Path, now: SystemTime) -> Result<()> {
+fn delete_expired_archives(
+    root: &Path,
+    now: SystemTime,
+    audit: Option<&crate::audit::Audit>,
+) -> Result<()> {
     let archives = root.join("archives");
     if !archives.exists() {
         return Ok(());
@@ -385,7 +489,21 @@ fn delete_expired_archives(root: &Path, now: SystemTime) -> Result<()> {
                 .unwrap_or_default()
                 >= ARCHIVE_RETENTION
             {
-                fs::remove_file(&path)?;
+                if let Some(audit) = audit {
+                    audit.delete_archive(
+                        root,
+                        &path
+                            .strip_prefix(root)?
+                            .to_string_lossy()
+                            .replace('\\', "/"),
+                        || {
+                            fs::remove_file(&path)?;
+                            Ok(())
+                        },
+                    )?;
+                } else {
+                    fs::remove_file(&path)?;
+                }
                 tracing::info!(archive = %path.display(), "Expired archive deleted");
             }
         }
@@ -401,6 +519,83 @@ fn delete_expired_archives(root: &Path, now: SystemTime) -> Result<()> {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn audit_follows_archive_and_deletion_lifecycle() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let database_path = root.path().join("audit.sqlite3");
+        let audit = crate::audit::Audit::open(&database_path)?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = SystemTime::now();
+        let uploaded_at = DateTime::<Utc>::from(now - RETENTION - Duration::from_secs(1));
+        let job = root
+            .path()
+            .join("active")
+            .join(uploaded_at.format("%d%m%Y").to_string())
+            .join(&id);
+        fs::create_dir_all(&job)?;
+        for name in ["source.png".to_owned(), format!("{id}.png")] {
+            let file = job.join(name);
+            fs::write(&file, b"bytes")?;
+            fs::File::options().write(true).open(file)?.set_times(
+                fs::FileTimes::new().set_modified(now - RETENTION - Duration::from_secs(1)),
+            )?;
+        }
+        audit.publish(
+            &crate::audit::FileRecord {
+                id: &id,
+                file_type: "png",
+                uploaded_at: &uploaded_at.to_rfc3339(),
+                uploader_ip: Some("192.0.2.1".parse()?),
+                original_size: 5,
+                stored_size: 5,
+            },
+            || Ok(()),
+            || {},
+        )?;
+        audit.access(&id, "198.51.100.1".parse()?)?;
+        archive_expired(root.path(), now, Some(&audit))?;
+        let connection = rusqlite::Connection::open(&database_path)?;
+        let archive: String =
+            connection.query_row("SELECT archive_path FROM files WHERE id=?1", [&id], |r| {
+                r.get(0)
+            })?;
+        assert!(!job.exists());
+        assert_eq!(
+            connection.query_row("SELECT archived FROM files WHERE id=?1", [&id], |r| r
+                .get::<_, i64>(0))?,
+            1
+        );
+        assert_eq!(
+            connection.query_row("SELECT count(*) FROM ip_uploads", [], |r| r
+                .get::<_, i64>(0))?,
+            1
+        );
+        fs::File::options()
+            .write(true)
+            .open(root.path().join(&archive))?
+            .set_times(fs::FileTimes::new().set_modified(now - ARCHIVE_RETENTION))?;
+        delete_expired_archives(root.path(), now, Some(&audit))?;
+        assert!(!root.path().join(archive).exists());
+        assert_eq!(
+            connection.query_row("SELECT count(*) FROM ip_uploads", [], |r| r
+                .get::<_, i64>(0))?,
+            0
+        );
+        assert_eq!(
+            connection.query_row("SELECT count(*) FROM file_access", [], |r| r
+                .get::<_, i64>(0))?,
+            0
+        );
+        assert!(
+            connection
+                .query_row("SELECT uploader_ip FROM files WHERE id=?1", [&id], |r| {
+                    r.get::<_, Option<String>>(0)
+                })?
+                .is_none()
+        );
+        Ok(())
+    }
 
     #[test]
     fn capacity_includes_reservations_and_preserves_free_space() {
@@ -426,7 +621,9 @@ mod tests {
         let day = root.path().join("active/01102026/job");
         fs::create_dir_all(&day)?;
         let old = day.join("old.png");
-        let recent = day.join("recent.png");
+        let recent_day = root.path().join("active/01102026/recent-job");
+        fs::create_dir_all(&recent_day)?;
+        let recent = recent_day.join("recent.png");
         fs::write(&old, b"original bytes")?;
         fs::write(&recent, b"recent bytes")?;
         let now = SystemTime::now();
@@ -434,7 +631,7 @@ mod tests {
             .write(true)
             .open(&old)?
             .set_times(fs::FileTimes::new().set_modified(now - RETENTION))?;
-        archive_expired(root.path(), now)?;
+        archive_expired(root.path(), now, None)?;
         assert!(!old.exists());
         assert!(recent.exists());
         let archive_path = fs::read_dir(root.path().join("archives/01102026"))?
@@ -448,7 +645,7 @@ mod tests {
             .by_name("active/01102026/job/old.png")?
             .read_to_end(&mut data)?;
         assert_eq!(data, b"original bytes");
-        archive_expired(root.path(), now)?;
+        archive_expired(root.path(), now, None)?;
         assert_eq!(
             fs::read_dir(root.path().join("archives/01102026"))?.count(),
             1
@@ -470,7 +667,7 @@ mod tests {
             .set_times(fs::FileTimes::new().set_modified(now - RETENTION))?;
         // A file in place of the archive directory simulates an I/O failure.
         fs::write(root.path().join("archives"), b"blocked")?;
-        assert!(archive_expired(root.path(), now).is_err());
+        assert!(archive_expired(root.path(), now, None).is_err());
         assert_eq!(fs::read(source)?, b"audio bytes");
         Ok(())
     }
@@ -496,11 +693,11 @@ mod tests {
         fs::File::options().write(true).open(&recent)?.set_times(
             fs::FileTimes::new().set_modified(now - ARCHIVE_RETENTION + Duration::from_secs(1)),
         )?;
-        delete_expired_archives(root.path(), now)?;
+        delete_expired_archives(root.path(), now, None)?;
         assert!(!expired.exists());
         assert!(recent.exists());
         assert!(temporary.exists());
-        delete_expired_archives(root.path(), now + Duration::from_secs(1))?;
+        delete_expired_archives(root.path(), now + Duration::from_secs(1), None)?;
         assert!(!recent.exists());
         assert!(temporary.exists());
         Ok(())

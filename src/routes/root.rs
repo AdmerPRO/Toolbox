@@ -31,6 +31,23 @@ fn validate_site_url(value: &str) -> Result<String, &'static str> {
     Ok(url.as_str().trim_end_matches('/').to_owned())
 }
 
+pub fn privacy_email() -> Result<String, StatusCode> {
+    let email =
+        std::env::var("PRIVACY_CONTACT_EMAIL").unwrap_or_else(|_| "admin@tools.admerpro.com".into());
+    if email.len() > 254
+        || email.split('@').count() != 2
+        || email.starts_with('@')
+        || email.ends_with('@')
+        || !email
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"@._+-".contains(&b))
+    {
+        tracing::error!("Invalid PRIVACY_CONTACT_EMAIL");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    Ok(email)
+}
+
 pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
     let path = std::path::Path::new("frontend")
         .join(page)
@@ -40,7 +57,8 @@ pub async fn page_handler(page: &str) -> Result<Html<String>, StatusCode> {
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     Ok(Html(
-        html.replace("https://tools.admerpro.pl", &site_url()?),
+        html.replace("https://tools.admerpro.pl", &site_url()?)
+            .replace("{{PRIVACY_CONTACT_EMAIL}}", &privacy_email()?),
     ))
 }
 

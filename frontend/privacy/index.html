@@ -6,8 +6,10 @@
     <title>Privacy Policy - File Storage and Archive Retention | Tool Box</title>
     <link rel="stylesheet" href="/root/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
-    <meta name="description" content="Read how Tool Box handles uploaded files, seven-day download availability, ZIP archives, automatic deletion after 30 days, cookies, and privacy requests.">
+    <meta name="description" content="Read how Tool Box handles uploaded files, seven-day download availability, ZIP archives, IP audit logs, administrator access, cookies, and privacy requests.">
     <link rel="canonical" href="https://tools.admerpro.pl/privacy/">
+    <link rel="stylesheet" href="/shared/privacy.css">
+    <script src="/shared/privacy.js" defer></script>
 </head>
 <body>
     <div class="shell">
@@ -23,7 +25,7 @@
                 </nav></header>
         <main class="downloader policy">
             <h1>Privacy <span>policy</span></h1>
-            <p class="lead">Last updated: 1 October 2026. This page explains how Tool Box handles files and related data.</p>
+            <p class="lead">Last updated: 3 October 2026. Policy version: 2026-10-03. This page explains how Tool Box handles files and related data.</p>
             <section class="panel">
                 <h2>Files and processing</h2>
                 <p>When you use a converter, your original file is uploaded to this server to produce the requested image or audio file. Successful jobs store both the original and the result. YouTube tools send your submitted link to YouTube through yt-dlp and store the downloaded result on this server. Failed jobs use temporary working files that are normally removed when processing ends. An abrupt shutdown can leave temporary files on disk until the operator cleans them up.</p>
@@ -33,16 +35,42 @@
                 <p><strong>Archiving is not deletion.</strong> ZIP archives contain uploaded originals and generated results. Each archive is automatically deleted 30 days after it is created, rather than 30 days after the original upload. Deletion runs at startup and hourly; if the server is offline or deletion fails, the archive remains until a successful retry. This typically means about 37 days of total retention, although downtime or processing failures can extend it. The server operator can access stored files and archives. Archives are not offered for download through the website.</p>
                 <h2>Download links</h2>
                 <p>No account is required. Generated results have random download identifiers, but anyone with the full download link can retrieve the result during its seven-day availability. Keep your links private. Original uploads are not exposed through the download endpoint. Avoid uploading sensitive or confidential material.</p>
+                <h2>Audit logs and IP addresses</h2>
+                <p>For each successful upload or YouTube download, a private SQLite database stores the file UUID, type, UTC upload/job-start time, uploader IP address, original/input size, stored result size, archive status and timestamps, deletion timestamp, and total download request count. The uploader IP is linked to the file in an upload index. For YouTube jobs, this is the IP of the person requesting the download; input size refers to retained downloaded media, or the result size when no separate input remains.</p>
+                <p>For each file and viewer IP, we store the first and last accepted download request time and the number of requests. Requests that fail validation or refer to missing or expired files do not count. An accepted request does not prove that the transfer completed or that a person viewed the content. Shared connections, proxies, and VPNs can make an IP address an unreliable indication of identity. Original filenames, submitted YouTube URLs, and video titles are not stored in this audit database.</p>
+                <h2>Administrator access and prohibited content</h2>
+                <p><strong>The administrator may inspect uploaded originals, generated results, ZIP archives, and related audit records</strong> to investigate abuse, respond to reports, protect the service, and handle lawful requests from competent authorities. Do not upload illegal content or material you are not authorized to process. Audit logging does not automatically detect illegal files and does not verify a person's identity.</p>
+                <h2>Audit retention and deletion</h2>
+                <p>Archiving preserves file-related audit records. After the retained file and its archive copies are permanently deleted, its uploader IP is cleared, its upload-index entry is removed, and its viewer IP rows are deleted. If an IP uploaded other retained files, the entries for those files remain. There is no separate permanent IP registry. A file metadata row without IP addresses remains for the storage lifecycle record, including deletion time and aggregate request count. These remaining records are not claimed to be anonymous in every context.</p>
+                <p>Automatic cleanup runs at startup and hourly. Manual filesystem deletions are reconciled at the next successful maintenance run; downtime or failures can delay cleanup. Files predating audit logging may have incomplete metadata and no known uploader IP. Hosting logs and operator backups are separate: the operator must apply their own retention and deletion procedures to those copies.</p>
                 <h2>Cookies and request information</h2>
-                <p>The home page uses a cookie called <code>popup_seen_v2</code> for one day to remember that you have closed the welcome message. The application does not include advertising or analytics scripts. Server logging can record request details and errors, including requested file identifiers. Hosting infrastructure may also keep connection logs; their retention depends on the operator's configuration and is separate from the file policy above.</p>
+                <p>A necessary cookie named <code>privacy_policy</code> stores the accepted policy version for up to one year. A new policy version requires a new acceptance. You can refuse and continue reading public pages, including this policy; media operations require acceptance. Clearing the cookie brings back the acceptance screen. This acknowledgement is not permission for unrestricted data use or illegal uploads. The cookie is a browser preference, not verified proof of identity.</p>
+                <p>The home page also uses <code>popup_seen_v2</code> for one day to remember dismissal of the welcome message. The application includes no advertising or analytics scripts. Rate limiting temporarily stores IP addresses and counters in memory independently of the persistent file audit records. Those counters expire and reset on restart. Server and hosting logs may include request information and errors under the operator's configuration.</p>
                 <h2>External services</h2>
-                <p>To limit abusive API traffic, the server temporarily stores client IP addresses and request counts in memory. Counters use 60-second windows; expired entries are removed during later API requests and all counters reset when the server restarts. This rate-limit data is not written to a separate persistent database.</p>
                 <p>YouTube tools contact YouTube to retrieve video information and media. Video thumbnails load from external image hosts, which receive your connection information when your browser requests them. Image conversion, resizing, uploaded MP4 audio extraction, and video muting run on this server.</p>
                 <h2>Questions and deletion requests</h2>
-                <p>Contact the operator of the Tool Box server you are using for privacy questions or a request to delete stored data. Provide your download identifier privately so the operator can locate related originals, results, and archives. Do not post private files or download links in public GitHub issues.</p>
+                <p>The operator of this Tool Box instance is responsible for the processing described here. Contact the administrator at <a href="mailto:{{PRIVACY_CONTACT_EMAIL}}">{{PRIVACY_CONTACT_EMAIL}}</a> for privacy questions, abuse reports, or a request to access, correct, or delete stored data. You may also raise a privacy complaint with your competent data protection authority. Provide your download identifier privately so the operator can locate related originals, results, and archives. Do not post private files or download links in public GitHub issues.</p>
             </section>
         </main>
         <footer><a href="/">Back to all tools</a><a href="/privacy/">Privacy policy</a></footer>
     </div>
+
+    <aside id="privacy-notice" hidden aria-label="Privacy policy acceptance">
+        <p>Media tools require acceptance of the <a href="/privacy/">privacy policy</a>. Browsing public pages remains available.</p>
+        <button id="privacy-review" type="button">Review and accept</button>
+    </aside>
+    <dialog id="privacy-dialog" aria-labelledby="privacy-title" aria-describedby="privacy-summary">
+        <h2 id="privacy-title">Do you accept our privacy policy?</h2>
+        <p id="privacy-summary">We store uploaded files and generated results, your upload IP address, and the IP addresses and times of file downloads to investigate abuse and illegal uploads. The administrator may inspect uploaded files, results, and archives for these purposes.</p>
+        <p>Links expire after 7 days. Files are then archived; ZIP archives are deleted 30 days after creation. File-related IP records are removed when all retained copies of that file are deleted. Downtime can extend retention.</p>
+        <p>Only submit lawful content that you are authorized to process. <a href="/privacy/">Read the full privacy policy</a> before deciding.</p>
+        <p id="privacy-cookie-error" hidden>Please enable essential cookies to remember your choice.</p>
+        <div class="privacy-actions">
+            <button id="privacy-accept" type="button">I accept the privacy policy</button>
+            <button id="privacy-decline" type="button">I do not accept</button>
+        </div>
+    </dialog>
+    <noscript><p>JavaScript and the privacy acceptance cookie are required to use media tools. Please read the <a href="/privacy/">privacy policy</a>.</p></noscript>
+
 </body>
 </html>

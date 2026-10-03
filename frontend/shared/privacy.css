@@ -1,0 +1,18 @@
+#privacy-dialog {
+    width: min(92vw, 620px); max-height: 90vh; overflow: auto;
+    border: 1px solid #98363e; border-radius: 18px; padding: 28px;
+    background: #1b1015; color: #f8eef0; box-shadow: 0 20px 70px #0009;
+}
+#privacy-dialog::backdrop { background: #080309cc; backdrop-filter: blur(5px); }
+#privacy-dialog h2 { margin-top: 0; font-size: 1.6rem; }
+#privacy-dialog p { line-height: 1.65; }
+#privacy-dialog a, #privacy-notice a { color: #ffb2bb; }
+.privacy-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.privacy-actions button, #privacy-review {
+    padding: 12px 18px; border: 1px solid #c65564; border-radius: 10px;
+    color: white; background: #a52d40; cursor: pointer; font: inherit;
+}
+#privacy-decline { background: transparent; }
+#privacy-notice { padding: 16px; margin: 16px; border: 1px solid #c65564; border-radius: 12px; background: #251018; color: white; }
+#privacy-notice[hidden], #privacy-cookie-error[hidden] { display: none; }
+#privacy-dialog button:focus-visible, #privacy-review:focus-visible { outline: 3px solid white; outline-offset: 3px; }

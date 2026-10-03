@@ -20,4 +20,11 @@ welcome.querySelector("img").addEventListener("error", event => {
     event.target.hidden = true;
 });
 
-if (!hasSeenWelcome()) openWelcome();
+function welcomeAfterPrivacy() {
+    if (!hasSeenWelcome()) openWelcome();
+}
+if (document.cookie.split(';').some(cookie => cookie.trim() === 'privacy_policy=2026-10-03')) {
+    welcomeAfterPrivacy();
+} else {
+    window.addEventListener('toolbox:privacy-accepted', welcomeAfterPrivacy, { once: true });
+}

@@ -218,9 +218,10 @@ use anyhow::Context;
 
 pub async fn image_handler(
     Extension(client_permit): Extension<Arc<crate::rate_limit::JobPermit>>,
+    Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
-    image_job(multipart, None, client_permit).await
+    image_job(multipart, None, client_permit, uploader_ip).await
 }
 
 #[derive(serde::Deserialize)]
@@ -232,6 +233,7 @@ pub struct ResizeOptions {
 pub async fn resize_handler(
     Query(options): Query<ResizeOptions>,
     Extension(client_permit): Extension<Arc<crate::rate_limit::JobPermit>>,
+    Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
     if !(1..=4096).contains(&options.width) || !(1..=4096).contains(&options.height) {
@@ -241,6 +243,7 @@ pub async fn resize_handler(
         multipart,
         Some((options.width, options.height)),
         client_permit,
+        uploader_ip,
     )
     .await
 }
@@ -249,6 +252,7 @@ async fn image_job(
     multipart: Multipart,
     size: Option<(u32, u32)>,
     client_permit: Arc<crate::rate_limit::JobPermit>,
+    uploader_ip: std::net::IpAddr,
 ) -> Result<Json<YoutubeDownload>, Error> {
     let permit = SLOTS.clone().try_acquire_owned().map_err(|_| {
         (
@@ -288,22 +292,32 @@ async fn image_job(
         let mut file = std::fs::File::create(work.path().join(&filename)).map_err(internal)?;
         file.write_all(&data).map_err(internal)?;
         drop(file);
-        storage::publish(work.path(), &filename).map_err(internal)
+        storage::publish(&work, &filename, uploader_ip).map_err(internal)
     })
     .await
     .map_err(internal)??;
     Ok(Json(YoutubeDownload { download_url: url }))
 }
 
-pub async fn audio_handler(multipart: Multipart) -> Result<Json<YoutubeDownload>, Error> {
-    video_job(multipart, false).await
+pub async fn audio_handler(
+    Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
+    multipart: Multipart,
+) -> Result<Json<YoutubeDownload>, Error> {
+    video_job(multipart, false, uploader_ip).await
 }
 
-pub async fn mute_handler(multipart: Multipart) -> Result<Json<YoutubeDownload>, Error> {
-    video_job(multipart, true).await
+pub async fn mute_handler(
+    Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
+    multipart: Multipart,
+) -> Result<Json<YoutubeDownload>, Error> {
+    video_job(multipart, true, uploader_ip).await
 }
 
-async fn video_job(multipart: Multipart, mute: bool) -> Result<Json<YoutubeDownload>, Error> {
+async fn video_job(
+    multipart: Multipart,
+    mute: bool,
+    uploader_ip: std::net::IpAddr,
+) -> Result<Json<YoutubeDownload>, Error> {
     let _permit = SLOTS.clone().try_acquire_owned().map_err(|_| {
         (
             StatusCode::TOO_MANY_REQUESTS,
@@ -385,7 +399,7 @@ async fn video_job(multipart: Multipart, mute: bool) -> Result<Json<YoutubeDownl
             "Could not extract audio. Choose a valid MP4 containing an audio track."
         }));
     }
-    let url = storage::publish(work.path(), &filename).map_err(internal)?;
+    let url = storage::publish(&work, &filename, uploader_ip).map_err(internal)?;
     Ok(Json(YoutubeDownload { download_url: url }))
 }
 

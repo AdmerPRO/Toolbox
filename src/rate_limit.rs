@@ -15,6 +15,9 @@ use std::{
 const WINDOW: Duration = Duration::from_secs(60);
 const MAX_CLIENTS: usize = 10_000;
 
+#[derive(Clone, Copy)]
+pub struct ClientIp(pub IpAddr);
+
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Bucket {
     Api,
@@ -213,7 +216,7 @@ pub async fn middleware(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let path = request.uri().path();
+    let path = request.uri().path().to_owned();
     if !path.starts_with("/api/") || path == "/api/healthcheck" {
         return next.run(request).await;
     }
@@ -225,6 +228,7 @@ pub async fn middleware(
             .into_response();
     };
     let ip = limiter.request_ip(peer.ip(), request.headers());
+    request.extensions_mut().insert(ClientIp(ip));
     let bucket = if request.method() == Method::POST {
         Bucket::Job
     } else {
@@ -240,6 +244,30 @@ pub async fn middleware(
             "Too many requests. Please wait before trying again.",
         )
             .into_response();
+    }
+    if bucket == Bucket::Job
+        && matches!(
+            path.as_str(),
+            "/api/youtube/info" | "/api/youtube/download" | "/api/youtube/download/mp3"
+        )
+        || (bucket == Bucket::Job && path.starts_with("/api/convert/"))
+    {
+        let accepted = request
+            .headers()
+            .get(header::COOKIE)
+            .and_then(|h| h.to_str().ok())
+            .is_some_and(|value| {
+                value.split(';').any(|cookie| {
+                    cookie.trim() == format!("privacy_policy={}", crate::audit::POLICY_VERSION)
+                })
+            });
+        if !accepted {
+            return (
+                StatusCode::PRECONDITION_REQUIRED,
+                "Please read and accept the privacy policy before using media tools.",
+            )
+                .into_response();
+        }
     }
     let client_permit = if bucket == Bucket::Job {
         let Some(permit) = limiter.acquire_job(ip) else {

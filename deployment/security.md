@@ -93,3 +93,17 @@ References: [yt-dlp options](https://github.com/yt-dlp/yt-dlp#usage-and-options)
 [HSTS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/http-strict-transport-security/),
 [rate limiting](https://developers.cloudflare.com/waf/rate-limiting-rules/),
 [systemd sandboxing](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html).
+
+## Audit database and private media review
+
+`storage/audit.sqlite3` and its SQLite WAL/SHM files contain private upload and
+viewer IP records. The service's UMask=0077 protects files it creates. Keep
+storage inaccessible to other accounts, and check ownership/permissions when
+migrating existing storage. Do not expose SQLite or an audit dashboard over
+public HTTP. Read the README administrator inspection queries for local access.
+Update `PRIVACY_CONTACT_EMAIL` to a monitored address. Policy acknowledgement
+is required for media POST calls, including scripted smoke/API requests.
+Backups must be protected and follow deletion/retention procedures; automatic
+live-database cleanup does not erase off-host copies. SQLite uses secure_delete
+and checkpoints after cleanup; filesystem snapshots and physical media recovery
+are outside the application's logical deletion guarantees.

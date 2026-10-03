@@ -5,12 +5,14 @@ The server and all generated files are isolated in a temporary directory.
 """
 
 import argparse
+from contextlib import closing
 import json
 import os
 import re
 from pathlib import Path
 import shutil
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -32,7 +34,7 @@ def main():
             port = listener.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
         environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port), SITE_URL=base,
-                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="", UPLOAD_TIMEOUT_SECONDS="2")
+                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="", UPLOAD_TIMEOUT_SECONDS="2", PRIVACY_CONTACT_EMAIL="privacy@example.org")
         with (root / "server.log").open("w") as log:
             server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
             try:
@@ -62,7 +64,7 @@ def main():
                             assert error.headers["Cache-Control"] == "private, no-store"
                         return error.read(), error.headers
 
-                def upload(path, filename, content, output=None, expected=200):
+                def upload(path, filename, content, output=None, expected=200, cookie="privacy_policy=2026-10-03"):
                     boundary = "Toolbox" + uuid.uuid4().hex
                     body = bytearray()
                     if output is not None:
@@ -70,7 +72,7 @@ def main():
                     body.extend(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode())
                     body.extend(content)
                     body.extend(f'\r\n--{boundary}--\r\n'.encode())
-                    request = urllib.request.Request(base + path, data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+                    request = urllib.request.Request(base + path, data=body, headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "Cookie": cookie})
                     try:
                         with urllib.request.urlopen(request, timeout=30) as response:
                             assert response.status == expected
@@ -90,6 +92,11 @@ def main():
                     assert page_headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
                     assert "camera=()" in page_headers["Permissions-Policy"]
                     assert b"Privacy" in html
+                    assert b'id="privacy-dialog"' in html
+                    assert b'/shared/privacy.js' in html
+                    if page == "/privacy/":
+                        assert b"privacy@example.org" in html
+                        assert b"{{PRIVACY_CONTACT_EMAIL}}" not in html
                     text = html.decode("utf-8")
                     descriptions.append(re.search(r'<meta name="description" content="([^"]+)"', text).group(1))
                     assert text.count('rel="canonical"') == 1
@@ -169,6 +176,19 @@ def main():
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-an", "-c:v", "mpeg4", str(silent)], check=True)
                 upload("/api/convert/audio", "silent.mp4", silent.read_bytes(), expected=400)
                 assert not list((root / "storage" / "staging").iterdir()), "Working files leaked"
+                upload("/api/convert/image", "sample.png", image.read_bytes(), "png", expected=428, cookie="")
+                upload("/api/convert/image", "sample.png", image.read_bytes(), "png", expected=428, cookie="privacy_policy=old")
+                get("/storage/audit.sqlite3",404)
+                get("/storage/audit.sqlite3-wal",404)
+                with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
+                    tracked = filename.rsplit(".",1)[0]
+                    record = database.execute("SELECT uploader_ip,original_size,stored_size,open_count,policy_version FROM files WHERE id=?",(tracked,)).fetchone()
+                    assert record[0] == "127.0.0.1", record
+                    assert record[1] == len(video.read_bytes()), record
+                    assert record[2] > 0 and record[3] == 1 and record[4] == "2026-10-03", record
+                    assert database.execute("SELECT access_count FROM file_access WHERE file_id=?",(tracked,)).fetchone()[0] == 1
+                    assert database.execute("SELECT ip FROM ip_uploads WHERE file_id=?",(tracked,)).fetchone()[0] == "127.0.0.1"
+
                 # Keep an upload open: another operation from the same IP must be rejected.
                 slow = socket.create_connection(("127.0.0.1", port), timeout=5)
                 try:
@@ -176,6 +196,7 @@ def main():
                         "POST /api/convert/image HTTP/1.1\r\n"
                         f"Host: 127.0.0.1:{port}\r\n"
                         "Content-Type: multipart/form-data; boundary=SlowUpload\r\n"
+                        "Cookie: privacy_policy=2026-10-03\r\n"
                         "Content-Length: 100000\r\n\r\n"
                         "--SlowUpload\r\nContent-Disposition: form-data; name=\"file\"; filename=\"slow.png\"\r\n"
                         "Content-Type: image/png\r\n\r\npartial"
@@ -266,7 +287,7 @@ def main():
                 for endpoint, quality in [("/api/youtube/download", 720), ("/api/youtube/download/mp3", 192)]:
                     request = urllib.request.Request(base + endpoint,
                         data=json.dumps({"url": "https://youtu.be/dQw4w9WgXcQ", "quality": quality}).encode(),
-                        headers={"Content-Type": "application/json"})
+                        headers={"Content-Type": "application/json", "Cookie": "privacy_policy=2026-10-03"})
                     try:
                         urllib.request.urlopen(request, timeout=5).close()
                         raise AssertionError("Low disk reserve did not reject YouTube admission")
@@ -275,7 +296,7 @@ def main():
                 assert get(recovered)[0].startswith(b"\x89PNG")
                 assert (job / filename).exists(), "Low disk archiving removed original files"
                 assert not list((root / "storage" / "staging").iterdir()), "Rejected jobs leaked staging files"
-                print("Media smoke checks passed: conversions, headers, slow upload timeout, storage admission, expiry, and invalid uploads.")
+                print("Media smoke checks passed: conversions, privacy acknowledgement, audit records, headers, slow upload timeout, storage admission, and expiry.")
             finally:
                 server.terminate()
                 try:

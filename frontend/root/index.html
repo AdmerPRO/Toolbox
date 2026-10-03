@@ -8,6 +8,8 @@
 	    <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
     <meta name="description" content="Free media tools to convert and resize images, extract MP3 audio, mute MP4 videos, and download YouTube video and audio. No sign-up required.">
     <link rel="canonical" href="https://tools.admerpro.pl/">
+    <link rel="stylesheet" href="/shared/privacy.css">
+    <script src="/shared/privacy.js" defer></script>
 </head>
 	<body>
 		<div class="shell">
@@ -99,5 +101,23 @@
 			</div>
 		</dialog>
 		<script src="../root/script.js" defer></script>
-	</body>
+
+    <aside id="privacy-notice" hidden aria-label="Privacy policy acceptance">
+        <p>Media tools require acceptance of the <a href="/privacy/">privacy policy</a>. Browsing public pages remains available.</p>
+        <button id="privacy-review" type="button">Review and accept</button>
+    </aside>
+    <dialog id="privacy-dialog" aria-labelledby="privacy-title" aria-describedby="privacy-summary">
+        <h2 id="privacy-title">Do you accept our privacy policy?</h2>
+        <p id="privacy-summary">We store uploaded files and generated results, your upload IP address, and the IP addresses and times of file downloads to investigate abuse and illegal uploads. The administrator may inspect uploaded files, results, and archives for these purposes.</p>
+        <p>Links expire after 7 days. Files are then archived; ZIP archives are deleted 30 days after creation. File-related IP records are removed when all retained copies of that file are deleted. Downtime can extend retention.</p>
+        <p>Only submit lawful content that you are authorized to process. <a href="/privacy/">Read the full privacy policy</a> before deciding.</p>
+        <p id="privacy-cookie-error" hidden>Please enable essential cookies to remember your choice.</p>
+        <div class="privacy-actions">
+            <button id="privacy-accept" type="button">I accept the privacy policy</button>
+            <button id="privacy-decline" type="button">I do not accept</button>
+        </div>
+    </dialog>
+    <noscript><p>JavaScript and the privacy acceptance cookie are required to use media tools. Please read the <a href="/privacy/">privacy policy</a>.</p></noscript>
+
+</body>
 </html>

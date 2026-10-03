@@ -15,3 +15,6 @@ TRUSTED_PROXY_IPS=
 MAX_STORAGE_BYTES=32212254720
 MIN_FREE_DISK_BYTES=5368709120
 UPLOAD_TIMEOUT_SECONDS=300
+
+# Public contact for privacy requests and abuse reports
+PRIVACY_CONTACT_EMAIL=admin@tools.admerpro.com

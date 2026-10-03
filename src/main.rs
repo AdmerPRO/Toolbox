@@ -1,4 +1,5 @@
 mod api;
+mod audit;
 mod process;
 mod rate_limit;
 mod routes;
@@ -37,6 +38,7 @@ async fn main() -> Result<()> {
 
     info!("Loading server...");
     storage::validate_config()?;
+    audit::initialize()?;
     storage::start_archiver();
 
     let host = env::var("ADDRESS").unwrap_or_else(|_| "127.0.0.1".into());
@@ -46,6 +48,7 @@ async fn main() -> Result<()> {
 
     // Fail early if the canonical origin is misconfigured.
     root::site_url().map_err(|_| anyhow::anyhow!("Invalid SITE_URL configuration"))?;
+    root::privacy_email().map_err(|_| anyhow::anyhow!("Invalid PRIVACY_CONTACT_EMAIL"))?;
     let limiter = rate_limit::RateLimiter::from_env()?;
     let mut app = Router::new()
         .route("/sitemap.xml", get(root::sitemap_handler))

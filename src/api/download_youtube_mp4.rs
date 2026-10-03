@@ -17,6 +17,7 @@ fn download_options(command: &mut Command) -> &mut Command {
         "--ignore-config",
         "--no-plugin-dirs",
         "--no-playlist",
+        "--keep-video",
         "--socket-timeout",
         "30",
         "--max-filesize",
@@ -232,6 +233,9 @@ pub async fn youtube_info_handler(
 }
 
 pub async fn youtube_download_handler(
+    axum::Extension(crate::rate_limit::ClientIp(uploader_ip)): axum::Extension<
+        crate::rate_limit::ClientIp,
+    >,
     Json(request): Json<YoutubeDownloadRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
     if !is_youtube_url(&request.url) {
@@ -250,6 +254,7 @@ pub async fn youtube_download_handler(
         &youtube_video_url(&request.url).unwrap(),
         request.quality,
         work,
+        uploader_ip,
     )
     .await
     .map_err(|error| {
@@ -267,6 +272,7 @@ pub async fn download_youtube_mp4(
     url: &str,
     quality: u32,
     work: crate::storage::Staging,
+    uploader_ip: std::net::IpAddr,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let output_dir = work.path();
 
@@ -306,11 +312,14 @@ pub async fn download_youtube_mp4(
     check_download(&output_path)
         .await
         .map_err(|(_, message)| message)?;
-    Ok(crate::storage::publish(work.path(), &filename)?)
+    Ok(crate::storage::publish(&work, &filename, uploader_ip)?)
 }
 
 pub async fn download_file_handler(
     axum::extract::Path(filename): axum::extract::Path<String>,
+    axum::Extension(crate::rate_limit::ClientIp(viewer_ip)): axum::Extension<
+        crate::rate_limit::ClientIp,
+    >,
 ) -> Result<Response, StatusCode> {
     let (id, extension) = filename.rsplit_once('.').ok_or(StatusCode::BAD_REQUEST)?;
     if uuid::Uuid::parse_str(id).is_err() || !matches!(extension, "mp4" | "mp3") {
@@ -349,6 +358,12 @@ pub async fn download_file_handler(
         return Err(StatusCode::GONE);
     }
 
+    crate::audit::access(id.to_owned(), viewer_ip)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Cannot audit legacy download");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
     let stream = ReaderStream::new(file);
 
     let body = Body::from_stream(stream);
@@ -381,6 +396,9 @@ pub struct YoutubeAudioRequest {
 }
 
 pub async fn youtube_mp3_handler(
+    axum::Extension(crate::rate_limit::ClientIp(uploader_ip)): axum::Extension<
+        crate::rate_limit::ClientIp,
+    >,
     Json(request): Json<YoutubeAudioRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
     if !is_youtube_url(&request.url) {
@@ -430,7 +448,7 @@ pub async fn youtube_mp3_handler(
     }
     check_download(&path).await?;
     Ok(Json(YoutubeDownload {
-        download_url: crate::storage::publish(work.path(), &filename).map_err(|error| {
+        download_url: crate::storage::publish(&work, &filename, uploader_ip).map_err(|error| {
             tracing::error!(%error, "Cannot publish audio");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -493,9 +511,12 @@ mod tests {
     async fn reject_path_traversal() {
         for name in ["../secret.mp4", "..\\secret.mp3", "invalid.mp4", "test.txt"] {
             assert_eq!(
-                download_file_handler(axum::extract::Path(name.into()))
-                    .await
-                    .unwrap_err(),
+                download_file_handler(
+                    axum::extract::Path(name.into()),
+                    axum::Extension(crate::rate_limit::ClientIp("192.0.2.1".parse().unwrap()))
+                )
+                .await
+                .unwrap_err(),
                 StatusCode::BAD_REQUEST
             );
         }
@@ -503,10 +524,13 @@ mod tests {
 
     #[tokio::test]
     async fn reject_invalid_audio_quality() {
-        let error = youtube_mp3_handler(Json(YoutubeAudioRequest {
-            url: "https://youtu.be/dQw4w9WgXcQ".into(),
-            quality: 999,
-        }))
+        let error = youtube_mp3_handler(
+            axum::Extension(crate::rate_limit::ClientIp("192.0.2.1".parse().unwrap())),
+            Json(YoutubeAudioRequest {
+                url: "https://youtu.be/dQw4w9WgXcQ".into(),
+                quality: 999,
+            }),
+        )
         .await
         .err()
         .unwrap();
