@@ -7,5 +7,11 @@ SITE_URL=https://tools.admerpro.pl
 RATE_LIMIT_API_PER_MINUTE=60
 RATE_LIMIT_JOBS_PER_MINUTE=10
 MAX_CONCURRENT_JOBS_PER_CLIENT=1
-# Exact proxy socket IPs allowed to provide X-Forwarded-For; empty means direct clients
+# Exact proxy socket IPs allowed to provide CF-Connecting-IP / X-Forwarded-For; empty means direct clients
 TRUSTED_PROXY_IPS=
+
+# Storage capacity includes active files, staging, legacy files, and ZIP archives.
+# Jobs reserve additional space before starting; one server process per storage root.
+MAX_STORAGE_BYTES=32212254720
+MIN_FREE_DISK_BYTES=5368709120
+UPLOAD_TIMEOUT_SECONDS=300

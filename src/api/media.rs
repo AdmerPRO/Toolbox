@@ -43,6 +43,29 @@ fn format(extension: &str) -> Option<ImageFormat> {
 }
 
 async fn receive(
+    multipart: Multipart,
+    directory: &Path,
+    limit: usize,
+    audio: bool,
+) -> Result<String, Error> {
+    let seconds = std::env::var("UPLOAD_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
+    tokio::time::timeout(
+        Duration::from_secs(seconds),
+        receive_inner(multipart, directory, limit, audio),
+    )
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::REQUEST_TIMEOUT,
+            "Upload timed out. Please try again.".into(),
+        )
+    })?
+}
+
+async fn receive_inner(
     mut multipart: Multipart,
     directory: &Path,
     limit: usize,
@@ -233,7 +256,13 @@ async fn image_job(
             "The server is busy. Please try again shortly.".into(),
         )
     })?;
-    let work = storage::staging().map_err(internal)?;
+    let work = storage::prepare(768 * 1024 * 1024).await.map_err(|error| {
+        tracing::warn!(%error, "Storage unavailable");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Storage is temporarily unavailable.".into(),
+        )
+    })?;
     let extension = receive(multipart, work.path(), IMAGE_LIMIT, false).await?;
     let url = tokio::task::spawn_blocking(move || {
         let _client_permit = client_permit;
@@ -281,8 +310,15 @@ async fn video_job(multipart: Multipart, mute: bool) -> Result<Json<YoutubeDownl
             "The server is busy. Please try again shortly.".into(),
         )
     })?;
-    let work = storage::staging().map_err(internal)?;
+    let work = storage::prepare(768 * 1024 * 1024).await.map_err(|error| {
+        tracing::warn!(%error, "Storage unavailable");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Storage is temporarily unavailable.".into(),
+        )
+    })?;
     receive(multipart, work.path(), VIDEO_LIMIT, true).await?;
+    probe_video(&work.path().join("source.mp4"), mute).await?;
     let filename = format!(
         "{}.{}",
         uuid::Uuid::new_v4(),
@@ -330,20 +366,16 @@ async fn video_job(multipart: Multipart, mute: bool) -> Result<Json<YoutubeDownl
             "-y",
         ]);
     }
-    command.arg(work.path().join(&filename));
-    let output = tokio::time::timeout(Duration::from_secs(600), command.output())
+    command
+        .args(["-t", "7200", "-fs", "524288000"])
+        .arg(work.path().join(&filename));
+    let output = crate::process::run(&mut command, 600, Some(work.path()), 768 * 1024 * 1024)
         .await
-        .map_err(|_| {
-            (
-                StatusCode::REQUEST_TIMEOUT,
-                "Video processing timed out. Try a shorter video.".into(),
-            )
-        })?
         .map_err(|error| {
-            tracing::error!(%error, "Cannot start FFmpeg");
+            tracing::warn!(%error, "Video processing failed");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                "FFmpeg is not available on the server.".into(),
+                "Video processing failed or exceeded resource limits.".into(),
             )
         })?;
     if !output.status.success() {
@@ -357,9 +389,81 @@ async fn video_job(multipart: Multipart, mute: bool) -> Result<Json<YoutubeDownl
     Ok(Json(YoutubeDownload { download_url: url }))
 }
 
+fn valid_probe(video: &serde_json::Value, mute: bool) -> bool {
+    let format = &video["format"];
+    let duration = format["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok());
+    let streams = video["streams"].as_array();
+    format["format_name"]
+        .as_str()
+        .is_some_and(|s| s.split(',').any(|f| f == "mp4" || f == "mov"))
+        && duration.is_some_and(|d| d.is_finite() && d > 0.0 && d <= 7200.0)
+        && streams.is_some_and(|s| {
+            !s.is_empty()
+                && s.len() <= 10
+                && s.iter().any(|stream| {
+                    stream["codec_type"].as_str() == Some(if mute { "video" } else { "audio" })
+                })
+        })
+}
+
+async fn probe_video(path: &Path, mute: bool) -> Result<(), Error> {
+    let mut command = tokio::process::Command::new("ffprobe");
+    command
+        .args([
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-f",
+            "mov",
+            "-show_entries",
+            "format=format_name,duration:stream=codec_type",
+            "-of",
+            "json",
+        ])
+        .arg(path);
+    let output = crate::process::run(&mut command, 20, None, 0)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "ffprobe failed");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Video validation failed. Check that ffprobe is installed.".into(),
+            )
+        })?;
+    let data = serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Null);
+    if !output.status.success() || !valid_probe(&data, mute) {
+        return Err(bad(
+            "Choose a valid MP4 up to 2 hours, with at most 10 streams and the required track.",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_container_duration_stream_count_and_required_track() {
+        let mut video = serde_json::json!({"format": {"format_name": "mov,mp4,m4a,3gp,3g2,mj2", "duration": "7200"}, "streams": [{"codec_type": "video"}]});
+        assert!(valid_probe(&video, true));
+        assert!(!valid_probe(&video, false));
+        for duration in ["7201", "0", "-1", "NaN", "inf", "unknown"] {
+            video["format"]["duration"] = duration.into();
+            assert!(!valid_probe(&video, true));
+        }
+        video["format"]["duration"] = "1".into();
+        video["streams"] = serde_json::json!([{"codec_type": "audio"}]);
+        assert!(valid_probe(&video, false));
+        video["streams"] = serde_json::json!(vec![serde_json::json!({"codec_type": "audio"}); 11]);
+        assert!(!valid_probe(&video, false));
+        video["streams"] = serde_json::json!([{"codec_type": "audio"}]);
+        video["format"]["format_name"] = "matroska".into();
+        assert!(!valid_probe(&video, false));
+    }
 
     #[test]
     fn converts_all_supported_image_formats() {

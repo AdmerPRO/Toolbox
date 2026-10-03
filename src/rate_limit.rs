@@ -105,6 +105,30 @@ impl RateLimiter {
             .unwrap_or(peer)
     }
 
+    fn request_ip(&self, peer: IpAddr, headers: &axum::http::HeaderMap) -> IpAddr {
+        let peer = peer.to_canonical();
+        if self.trusted_proxies.contains(&peer) {
+            let mut values = headers.get_all("cf-connecting-ip").iter();
+            if let Some(value) = values.next() {
+                // An invalid or repeated authoritative header fails closed to the proxy IP.
+                return if values.next().is_none() {
+                    value
+                        .to_str()
+                        .ok()
+                        .and_then(|v| v.parse::<IpAddr>().ok())
+                        .map(|ip| ip.to_canonical())
+                        .unwrap_or(peer)
+                } else {
+                    peer
+                };
+            }
+        }
+        self.client_ip(
+            peer,
+            headers.get("x-forwarded-for").and_then(|h| h.to_str().ok()),
+        )
+    }
+
     fn acquire_job(self: &Arc<Self>, ip: IpAddr) -> Option<Arc<JobPermit>> {
         let ip = ip.to_canonical();
         let mut jobs = self
@@ -200,13 +224,7 @@ pub async fn middleware(
         )
             .into_response();
     };
-    let ip = limiter.client_ip(
-        peer.ip(),
-        request
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|header| header.to_str().ok()),
-    );
+    let ip = limiter.request_ip(peer.ip(), request.headers());
     let bucket = if request.method() == Method::POST {
         Bucket::Job
     } else {
@@ -290,6 +308,28 @@ mod tests {
         );
         assert_eq!(limiter.client_ip(proxy, Some("invalid, 192.0.2.1")), proxy);
         assert_eq!(limiter.client_ip(proxy, None), proxy);
+    }
+
+    #[test]
+    fn cloudflare_headers_require_a_trusted_peer_and_one_valid_ip() {
+        use axum::http::{HeaderMap, HeaderValue};
+        let limiter = limiter();
+        let proxy = "127.0.0.1".parse().unwrap();
+        let client = "192.0.2.1".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("cf-connecting-ip", HeaderValue::from_static("192.0.2.1"));
+        headers.insert("x-forwarded-for", HeaderValue::from_static("198.51.100.1"));
+        assert_eq!(limiter.request_ip(proxy, &headers), client);
+        assert_eq!(limiter.request_ip(client, &headers), client);
+        headers.insert("cf-connecting-ip", HeaderValue::from_static("invalid"));
+        assert_eq!(limiter.request_ip(proxy, &headers), proxy);
+        headers.insert(
+            "cf-connecting-ip",
+            HeaderValue::from_static("::ffff:192.0.2.1"),
+        );
+        assert_eq!(limiter.request_ip(proxy, &headers), client);
+        headers.append("cf-connecting-ip", HeaderValue::from_static("198.51.100.1"));
+        assert_eq!(limiter.request_ip(proxy, &headers), proxy);
     }
 
     #[test]

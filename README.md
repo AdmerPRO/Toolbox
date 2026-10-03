@@ -60,8 +60,11 @@ provide users with an operator contact channel for privacy/deletion requests.
 The [privacy policy](frontend/privacy/index.html) explains this behavior.
 
 At most three YouTube metadata/download processes and two upload conversions
-run concurrently. YouTube processing times out after 30 minutes; uploaded
-audio extraction times out after 10 minutes.
+run concurrently. YouTube downloads are limited to 500 MiB per result and 2 hours of recorded media.
+Live streams, channels and playlists are rejected; accepted links are normalized
+to one canonical video URL. YouTube processing times out after 10 minutes; uploaded
+audio extraction times out after 10 minutes. Uploads time out after 5 minutes.
+MP4 inputs are validated by ffprobe within 20 seconds, with at most 10 streams.
 Download only content you own or have permission to download.
 
 ## Rate limiting
@@ -87,11 +90,41 @@ the server resets them. Each server process has its own counters.
 
 Direct connections use the socket peer IP. Behind a reverse proxy, set
 `TRUSTED_PROXY_IPS` to its exact IP addresses, separated by commas, for example
-`127.0.0.1,::1`. Only those proxies may supply `X-Forwarded-For`; the server
-walks the chain from right to left and selects the nearest untrusted address.
+`127.0.0.1,::1`. Only those proxies may supply `CF-Connecting-IP` or `X-Forwarded-For`.
+A single valid `CF-Connecting-IP` takes precedence; malformed or repeated
+values fall back to the proxy IP. Without that header, the server walks the chain from right to left and selects the nearest untrusted address.
 Configure your proxy to replace or append the real connecting client's IP.
 Without trusted proxy configuration, all traffic through a proxy shares its
 IP's limit. Clients sharing a public IP also share the same limit.
+
+## Resource and deployment security
+
+The default storage budget is 30 GiB (`MAX_STORAGE_BYTES`), with at least
+5 GiB left free on its filesystem (`MIN_FREE_DISK_BYTES`). Admission reserves
+2 GiB for a YouTube job or 768 MiB for an upload conversion, across concurrent
+jobs and archiving. Reservations are conservative and may reject work before
+the configured budget is reached. Storage includes staging, originals, results,
+legacy files, and archives. Capacity failures at admission return HTTP 503;
+existing files remain available. Use one server process per storage directory.
+The 250 ms process monitor stops jobs exceeding 1500 MiB (YouTube) or 768 MiB
+(upload conversion), or consuming the free disk reserve. Final YouTube results
+must be non-empty and at most 500 MiB. yt-dlp also receives `--max-filesize`,
+a duration/live filter, bounded retries, disabled plugins/cache, and one FFmpeg
+thread. Process output is bounded; timeout/cancellation stops the process tree.
+Monitoring can briefly overshoot its threshold; filesystem quotas are needed
+for strict limits across other processes writing to the same filesystem.
+Archiving reserves space for originals plus an incompressible ZIP before it
+starts; insufficient capacity leaves originals intact for the next attempt.
+Set `UPLOAD_TIMEOUT_SECONDS` (1-3600) to change the complete multipart upload deadline.
+
+Every response carries CSP, nosniff, frame denial, referrer and permissions
+policies. CSP permits scripts/styles from this origin and YouTube thumbnails
+from `i.ytimg.com` / `img.youtube.com`. API responses use `private, no-store`.
+
+See [deployment/security.md](deployment/security.md) for the hardened Linux
+service, Cloudflare Tunnel, HSTS, edge rate limiting, and maintenance steps.
+The service and Cloudflare settings must be installed on the deployment host;
+changing this repository does not activate them on an existing server.
 
 ## Checks
 

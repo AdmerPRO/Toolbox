@@ -54,7 +54,7 @@ class ReleaseTests(unittest.TestCase):
                         names = reader.getnames()
                         executable = next(member for member in reader.getmembers() if member.name.endswith("/admersite"))
                         self.assertTrue(executable.mode & 0o111)
-                for suffix in ["/frontend/root/index.html", "/frontend/assets/good_cat_image.png", "/.envexample", "/BUILD.json", "/LICENSE", "/RUNNING.md"]:
+                for suffix in ["/frontend/root/index.html", "/frontend/assets/good_cat_image.png", "/.envexample", "/BUILD.json", "/LICENSE", "/RUNNING.md", "/deployment/toolbox.service", "/deployment/security.md"]:
                     self.assertTrue(any(name.endswith(suffix) for name in names), suffix)
                 self.assertFalse(any("/storage/" in name or name.endswith("/.env") for name in names))
 

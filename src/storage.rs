@@ -23,13 +23,142 @@ pub fn valid_date(date: &str) -> bool {
         && NaiveDate::parse_from_str(date, "%d%m%Y").is_ok()
 }
 
-pub fn staging() -> Result<tempfile::TempDir> {
+const GIB: u64 = 1024 * 1024 * 1024;
+static RESERVED: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
+
+fn setting(name: &str, default: u64) -> Result<u64> {
+    let value = match std::env::var(name) {
+        Ok(value) => value
+            .parse::<u64>()
+            .with_context(|| format!("Invalid {name}"))?,
+        Err(std::env::VarError::NotPresent) => default,
+        Err(error) => return Err(error.into()),
+    };
+    anyhow::ensure!(value > 0, "{name} must be positive");
+    Ok(value)
+}
+
+pub fn validate_config() -> Result<()> {
+    setting("MAX_STORAGE_BYTES", 30 * GIB)?;
+    setting("MIN_FREE_DISK_BYTES", 5 * GIB)?;
+    anyhow::ensure!(
+        setting("UPLOAD_TIMEOUT_SECONDS", 300)? <= 3600,
+        "UPLOAD_TIMEOUT_SECONDS must be between 1 and 3600"
+    );
+    Ok(())
+}
+
+pub fn directory_size(root: &Path) -> Result<u64> {
+    let mut size = 0u64;
+    for entry in walkdir::WalkDir::new(root).follow_links(false) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error)
+                if error
+                    .io_error()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if entry.file_type().is_file() {
+            let metadata = match entry.metadata() {
+                Ok(metadata) => metadata,
+                Err(error)
+                    if error
+                        .io_error()
+                        .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            size = size
+                .checked_add(metadata.len())
+                .context("Storage size overflow")?;
+        }
+    }
+    Ok(size)
+}
+
+struct Reservation(u64);
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        let mut reserved = RESERVED.lock().unwrap_or_else(|e| e.into_inner());
+        *reserved -= self.0;
+    }
+}
+
+fn capacity_allows(used: u64, free: u64, reserved: u64, maximum: u64, minimum: u64) -> bool {
+    used.checked_add(reserved).is_some_and(|n| n <= maximum)
+        && free.checked_sub(reserved).is_some_and(|n| n >= minimum)
+}
+
+fn reserve(root: &Path, bytes: u64) -> Result<Reservation> {
+    fs::create_dir_all(root)?;
+    let mut reserved = RESERVED.lock().unwrap_or_else(|e| e.into_inner());
+    let total = reserved
+        .checked_add(bytes)
+        .context("Reservation overflow")?;
+    anyhow::ensure!(
+        capacity_allows(
+            directory_size(root)?,
+            fs2::available_space(root)?,
+            total,
+            setting("MAX_STORAGE_BYTES", 30 * GIB)?,
+            setting("MIN_FREE_DISK_BYTES", 5 * GIB)?
+        ),
+        "Insufficient storage capacity"
+    );
+    *reserved = total;
+    Ok(Reservation(bytes))
+}
+
+pub fn check_capacity() -> Result<()> {
+    let root = Path::new("storage");
+    anyhow::ensure!(
+        directory_size(root)? <= setting("MAX_STORAGE_BYTES", 30 * GIB)?
+            && fs2::available_space(root)? >= setting("MIN_FREE_DISK_BYTES", 5 * GIB)?,
+        "Storage capacity exhausted"
+    );
+    Ok(())
+}
+
+pub struct Staging {
+    directory: tempfile::TempDir,
+    _reservation: Reservation,
+}
+impl Staging {
+    pub fn path(&self) -> &Path {
+        self.directory.path()
+    }
+}
+
+fn staging(bytes: u64) -> Result<Staging> {
+    let reservation = reserve(Path::new("storage"), bytes)?;
     fs::create_dir_all("storage/staging")?;
-    Ok(tempfile::tempdir_in("storage/staging")?)
+    Ok(Staging {
+        directory: tempfile::tempdir_in("storage/staging")?,
+        _reservation: reservation,
+    })
+}
+
+pub async fn prepare(bytes: u64) -> Result<Staging> {
+    tokio::task::spawn_blocking(move || staging(bytes)).await?
+}
+
+pub fn check_free_space(root: &Path) -> Result<()> {
+    anyhow::ensure!(
+        fs2::available_space(root)? >= setting("MIN_FREE_DISK_BYTES", 5 * GIB)?,
+        "Free disk reserve exhausted"
+    );
+    Ok(())
 }
 
 // Publish only completed work. The renamed job folder contains originals and results.
 pub fn publish(work: &Path, output: &str) -> Result<String> {
+    check_capacity()?;
     let date = Utc::now().format("%d%m%Y").to_string();
     let (id, _) = output.rsplit_once('.').context("Invalid output filename")?;
     let directory = Path::new("storage/active").join(&date);
@@ -122,6 +251,27 @@ pub fn start_archiver() {
     });
 }
 
+fn copy_archive_file(
+    root: &Path,
+    source: &mut impl std::io::Read,
+    destination: &mut impl std::io::Write,
+) -> Result<()> {
+    let mut buffer = [0u8; 128 * 1024];
+    let mut checked = std::time::Instant::now();
+    check_free_space(root)?;
+    loop {
+        let size = source.read(&mut buffer)?;
+        if size == 0 {
+            return Ok(());
+        }
+        if checked.elapsed() >= Duration::from_millis(250) {
+            check_free_space(root)?;
+            checked = std::time::Instant::now();
+        }
+        destination.write_all(&buffer[..size])?;
+    }
+}
+
 fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
     delete_expired_archives(root, now)?;
     let mut groups: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
@@ -159,6 +309,14 @@ fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
         }
     }
     for (date, files) in groups {
+        // Reserve space for an incompressible ZIP plus headers before duplicating originals.
+        let bytes = files
+            .iter()
+            .try_fold(1024 * 1024u64, |sum, path| -> Result<u64> {
+                sum.checked_add(fs::metadata(path)?.len().saturating_add(4096))
+                    .context("Archive size overflow")
+            })?;
+        let _reservation = reserve(root, bytes.saturating_add(bytes / 100))?;
         let destination = root.join("archives").join(&date);
         fs::create_dir_all(&destination)?;
         let mut temporary = tempfile::NamedTempFile::new_in(&destination)?;
@@ -173,10 +331,11 @@ fn archive_expired(root: &Path, now: SystemTime) -> Result<()> {
                     .to_string_lossy()
                     .replace('\\', "/");
                 writer.start_file(name, options)?;
-                std::io::copy(&mut fs::File::open(path)?, &mut writer)?;
+                copy_archive_file(root, &mut fs::File::open(path)?, &mut writer)?;
             }
             writer.finish()?;
         }
+        check_free_space(root)?;
         temporary.as_file().sync_all()?;
         // Verify every entry's CRC before removing any source files.
         {
@@ -242,6 +401,15 @@ fn delete_expired_archives(root: &Path, now: SystemTime) -> Result<()> {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn capacity_includes_reservations_and_preserves_free_space() {
+        assert!(capacity_allows(20, 15, 5, 30, 5));
+        assert!(!capacity_allows(26, 15, 5, 30, 5));
+        assert!(!capacity_allows(20, 9, 5, 30, 5));
+        assert!(!capacity_allows(u64::MAX, u64::MAX, 1, u64::MAX, 1));
+        assert!(!capacity_allows(0, 1, 2, 30, 1));
+    }
 
     #[test]
     fn validate_download_paths() {

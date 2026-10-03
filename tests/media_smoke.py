@@ -32,7 +32,7 @@ def main():
             port = listener.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
         environment = dict(os.environ, ADDRESS="127.0.0.1", PORT=str(port), SITE_URL=base,
-                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="")
+                           RATE_LIMIT_API_PER_MINUTE="100", RATE_LIMIT_JOBS_PER_MINUTE="100", TRUSTED_PROXY_IPS="", UPLOAD_TIMEOUT_SECONDS="2")
         with (root / "server.log").open("w") as log:
             server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
             try:
@@ -51,9 +51,15 @@ def main():
                     try:
                         with urllib.request.urlopen(base + path, timeout=10) as response:
                             assert response.status == expected
+                            assert response.headers["X-Content-Type-Options"] == "nosniff"
+                            if path.startswith("/api/"):
+                                assert response.headers["Cache-Control"] == "private, no-store"
                             return response.read(), response.headers
                     except urllib.error.HTTPError as error:
                         assert error.code == expected, (error.code, error.read())
+                        assert error.headers["X-Content-Type-Options"] == "nosniff"
+                        if path.startswith("/api/"):
+                            assert error.headers["Cache-Control"] == "private, no-store"
                         return error.read(), error.headers
 
                 def upload(path, filename, content, output=None, expected=200):
@@ -76,7 +82,13 @@ def main():
                 pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/privacy/"]
                 descriptions = []
                 for page in pages:
-                    html, _ = get(page)
+                    html, page_headers = get(page)
+                    assert page_headers["X-Content-Type-Options"] == "nosniff"
+                    assert page_headers["X-Frame-Options"] == "DENY"
+                    assert "script-src 'self'" in page_headers["Content-Security-Policy"]
+                    assert "frame-ancestors 'none'" in page_headers["Content-Security-Policy"]
+                    assert page_headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+                    assert "camera=()" in page_headers["Permissions-Policy"]
                     assert b"Privacy" in html
                     text = html.decode("utf-8")
                     descriptions.append(re.search(r'<meta name="description" content="([^"]+)"', text).group(1))
@@ -182,6 +194,11 @@ def main():
                         raise AssertionError("A parallel operation bypassed the per-client cap")
                     get("/")
                     get("/api/healthcheck")
+                    import http.client
+                    response = http.client.HTTPResponse(slow)
+                    response.begin()
+                    assert response.status == 408, response.status
+                    response.read()
                 finally:
                     slow.close()
                 for _ in range(20):
@@ -193,7 +210,7 @@ def main():
                         assert error.code == 429
                     time.sleep(0.05)
                 else:
-                    raise AssertionError("Cancelled upload did not release the client slot")
+                    raise AssertionError("Timed out upload did not release the client slot")
                 recovered = upload("/api/convert/image", "sample.png", image.read_bytes(), "png")
                 assert get(recovered)[0].startswith(b"\x89PNG")
                 # Nonexistent API requests still consume the corresponding bucket.
@@ -209,7 +226,7 @@ def main():
                             blocked = True
                             break
                 assert blocked, "POST rate limit was not enforced"
-                request = urllib.request.Request(base + "/api/not-a-tool", data=b"", method="POST", headers={"X-Forwarded-For": "192.0.2.99"})
+                request = urllib.request.Request(base + "/api/not-a-tool", data=b"", method="POST", headers={"X-Forwarded-For": "192.0.2.99", "CF-Connecting-IP": "192.0.2.99"})
                 try:
                     urllib.request.urlopen(request, timeout=5).close()
                     raise AssertionError("Spoofed forwarding header bypassed the limit")
@@ -228,7 +245,37 @@ def main():
                             blocked = True
                             break
                 assert blocked, "Read API rate limit was not enforced"
-                print("Media smoke checks passed: image formats, resizing, MP4 extraction/muting, expiry, and invalid uploads.")
+                # Restart with an impossible free-space reserve. Admission must fail
+                # without invoking media tools, while completed files remain available.
+                server.terminate()
+                server.wait(timeout=10)
+                environment["MIN_FREE_DISK_BYTES"] = str(2**64 - 1)
+                server = subprocess.Popen([str(binary)], cwd=root, env=environment, stdout=log, stderr=log)
+                for _ in range(100):
+                    try:
+                        urllib.request.urlopen(base + "/api/healthcheck", timeout=1).close()
+                        break
+                    except (urllib.error.URLError, TimeoutError):
+                        if server.poll() is not None:
+                            raise RuntimeError((root / "server.log").read_text())
+                        time.sleep(0.1)
+                else:
+                    raise RuntimeError("Server did not restart")
+                upload("/api/convert/image", "sample.png", image.read_bytes(), "png", expected=503)
+                upload("/api/convert/audio", "sample.mp4", video.read_bytes(), expected=503)
+                for endpoint, quality in [("/api/youtube/download", 720), ("/api/youtube/download/mp3", 192)]:
+                    request = urllib.request.Request(base + endpoint,
+                        data=json.dumps({"url": "https://youtu.be/dQw4w9WgXcQ", "quality": quality}).encode(),
+                        headers={"Content-Type": "application/json"})
+                    try:
+                        urllib.request.urlopen(request, timeout=5).close()
+                        raise AssertionError("Low disk reserve did not reject YouTube admission")
+                    except urllib.error.HTTPError as error:
+                        assert error.code == 503, (error.code, error.read())
+                assert get(recovered)[0].startswith(b"\x89PNG")
+                assert (job / filename).exists(), "Low disk archiving removed original files"
+                assert not list((root / "storage" / "staging").iterdir()), "Rejected jobs leaked staging files"
+                print("Media smoke checks passed: conversions, headers, slow upload timeout, storage admission, expiry, and invalid uploads.")
             finally:
                 server.terminate()
                 try:

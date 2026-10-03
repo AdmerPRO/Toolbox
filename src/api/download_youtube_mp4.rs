@@ -1,17 +1,56 @@
 use std::{
     path::PathBuf,
     process::{Output, Stdio},
-    time::Duration,
 };
 
 static DOWNLOAD_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(3);
 
+const MAX_YOUTUBE_BYTES: u64 = 500 * 1024 * 1024;
+const MAX_JOB_BYTES: u64 = 1500 * 1024 * 1024;
+
 async fn run(command: &mut Command, seconds: u64) -> std::io::Result<Output> {
-    tokio::time::timeout(Duration::from_secs(seconds), command.output())
-        .await
-        .map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::TimedOut, "Download process timed out")
-        })?
+    crate::process::run(command, seconds, None, 0).await
+}
+
+fn download_options(command: &mut Command) -> &mut Command {
+    command.args([
+        "--ignore-config",
+        "--no-plugin-dirs",
+        "--no-playlist",
+        "--socket-timeout",
+        "30",
+        "--max-filesize",
+        "524288000",
+        "--match-filters",
+        "!is_live & duration > 0 & duration <= 7200",
+        "--no-progress",
+        "--no-cache-dir",
+        "--retries",
+        "3",
+        "--fragment-retries",
+        "3",
+        "--postprocessor-args",
+        "ffmpeg:-threads 1",
+    ])
+}
+
+fn storage_error(error: impl std::fmt::Display) -> (StatusCode, String) {
+    tracing::warn!(%error, "Storage unavailable");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Storage is temporarily unavailable.".into(),
+    )
+}
+
+async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, String)> {
+    let size = fs::metadata(path).await.map_err(storage_error)?.len();
+    if size == 0 || size > MAX_YOUTUBE_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Downloaded file exceeds the 500 MiB limit.".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn download_slot() -> Result<tokio::sync::SemaphorePermit<'static>, (StatusCode, String)> {
@@ -57,12 +96,46 @@ pub struct YoutubeDownload {
     pub download_url: String,
 }
 
-fn is_youtube_url(url: &str) -> bool {
-    let url = url.trim().to_ascii_lowercase();
-    url.starts_with("https://youtube.com/")
-        || url.starts_with("https://www.youtube.com/")
-        || url.starts_with("https://m.youtube.com/")
-        || url.starts_with("https://youtu.be/")
+fn youtube_video_url(input: &str) -> Option<String> {
+    let url = url::Url::parse(input.trim()).ok()?;
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port_or_known_default() != Some(443)
+        || !matches!(
+            url.host_str(),
+            Some("youtube.com" | "www.youtube.com" | "m.youtube.com" | "youtu.be")
+        )
+    {
+        return None;
+    }
+    let id = if url.host_str() == Some("youtu.be") {
+        url.path().strip_prefix('/')?.to_owned()
+    } else if url.path() == "/watch" {
+        let mut ids = url.query_pairs().filter(|(key, _)| key == "v");
+        let id = ids.next()?.1.into_owned();
+        if ids.next().is_some() {
+            return None;
+        }
+        id
+    } else {
+        ["/shorts/", "/embed/", "/live/"]
+            .iter()
+            .find_map(|prefix| url.path().strip_prefix(prefix))?
+            .to_owned()
+    };
+    if id.len() != 11
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return None;
+    }
+    Some(format!("https://www.youtube.com/watch?v={id}"))
+}
+
+fn is_youtube_url(input: &str) -> bool {
+    youtube_video_url(input).is_some()
 }
 
 fn bad_request(message: impl Into<String>) -> (StatusCode, String) {
@@ -82,6 +155,8 @@ pub async fn youtube_info_handler(
             .kill_on_drop(true)
             .args([
                 "--ignore-config",
+                "--no-plugin-dirs",
+                "--no-cache-dir",
                 "--socket-timeout",
                 "30",
                 "--dump-single-json",
@@ -89,7 +164,7 @@ pub async fn youtube_info_handler(
                 "--skip-download",
                 "--",
             ])
-            .arg(request.url.trim()),
+            .arg(youtube_video_url(&request.url).unwrap()),
         90,
     )
     .await
@@ -117,7 +192,22 @@ pub async fn youtube_info_handler(
         .as_str()
         .unwrap_or("YouTube video")
         .to_owned();
-    let thumbnail = video["thumbnail"].as_str().map(str::to_owned);
+    if video["is_live"].as_bool() == Some(true)
+        || !video["duration"]
+            .as_f64()
+            .is_some_and(|d| d.is_finite() && d > 0.0 && d <= 7200.0)
+    {
+        return Err(bad_request("Choose a recorded video up to 2 hours."));
+    }
+    let thumbnail = video["thumbnail"]
+        .as_str()
+        .filter(|value| {
+            url::Url::parse(value).is_ok_and(|u| {
+                u.scheme() == "https"
+                    && matches!(u.host_str(), Some("i.ytimg.com" | "img.youtube.com"))
+            })
+        })
+        .map(str::to_owned);
     let mut qualities = video["formats"]
         .as_array()
         .into_iter()
@@ -153,15 +243,22 @@ pub async fn youtube_download_handler(
     }
 
     let _slot = download_slot()?;
-    let download_url = download_youtube_mp4(request.url.trim(), request.quality)
+    let work = crate::storage::prepare(2 * 1024 * 1024 * 1024)
         .await
-        .map_err(|error| {
-            tracing::error!(%error, "YouTube download failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "The video download failed.".into(),
-            )
-        })?;
+        .map_err(storage_error)?;
+    let download_url = download_youtube_mp4(
+        &youtube_video_url(&request.url).unwrap(),
+        request.quality,
+        work,
+    )
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "YouTube download failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "The video download failed.".into(),
+        )
+    })?;
 
     Ok(Json(YoutubeDownload { download_url }))
 }
@@ -169,8 +266,8 @@ pub async fn youtube_download_handler(
 pub async fn download_youtube_mp4(
     url: &str,
     quality: u32,
+    work: crate::storage::Staging,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let work = crate::storage::staging()?;
     let output_dir = work.path();
 
     let filename = format!("{}.mp4", uuid::Uuid::new_v4());
@@ -179,10 +276,8 @@ pub async fn download_youtube_mp4(
         "bestvideo[ext=mp4][height<={quality}]+bestaudio[ext=m4a]/best[ext=mp4][height<={quality}]"
     );
 
-    let output = run(
-        Command::new("yt-dlp")
-            .kill_on_drop(true)
-            .args(["--ignore-config", "--no-playlist", "--socket-timeout", "30"])
+    let output = crate::process::run(
+        download_options(&mut Command::new("yt-dlp"))
             .arg("-f")
             .arg(&quality_selector)
             .arg("--merge-output-format")
@@ -193,7 +288,9 @@ pub async fn download_youtube_mp4(
             .arg(url)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
-        1800,
+        600,
+        Some(work.path()),
+        MAX_JOB_BYTES,
     )
     .await?;
 
@@ -206,6 +303,9 @@ pub async fn download_youtube_mp4(
     if !fs::try_exists(&output_path).await? {
         return Err("The downloaded file was not created.".into());
     }
+    check_download(&output_path)
+        .await
+        .map_err(|(_, message)| message)?;
     Ok(crate::storage::publish(work.path(), &filename)?)
 }
 
@@ -290,24 +390,15 @@ pub async fn youtube_mp3_handler(
         return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
     }
     let _slot = download_slot()?;
-    let work = crate::storage::staging().map_err(|error| {
-        tracing::error!(%error, "Cannot create audio directory");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Could not prepare audio storage.".into(),
-        )
-    })?;
+    let work = crate::storage::prepare(2 * 1024 * 1024 * 1024)
+        .await
+        .map_err(storage_error)?;
     let directory = work.path();
     let filename = format!("{}.mp3", uuid::Uuid::new_v4());
     let path = directory.join(&filename);
-    let output = run(
-        Command::new("yt-dlp")
-            .kill_on_drop(true)
+    let output = crate::process::run(
+        download_options(&mut Command::new("yt-dlp"))
             .args([
-                "--ignore-config",
-                "--no-playlist",
-                "--socket-timeout",
-                "30",
                 "-f",
                 "bestaudio/best",
                 "--extract-audio",
@@ -319,8 +410,10 @@ pub async fn youtube_mp3_handler(
             .arg("-o")
             .arg(&path)
             .arg("--")
-            .arg(request.url.trim()),
-        1800,
+            .arg(youtube_video_url(&request.url).unwrap()),
+        600,
+        Some(work.path()),
+        MAX_JOB_BYTES,
     )
     .await
     .map_err(|error| {
@@ -335,6 +428,7 @@ pub async fn youtube_mp3_handler(
         return Err((StatusCode::INTERNAL_SERVER_ERROR,
             "Audio download failed. Check that yt-dlp and FFmpeg are installed and the video is available.".into()));
     }
+    check_download(&path).await?;
     Ok(Json(YoutubeDownload {
         download_url: crate::storage::publish(work.path(), &filename).map_err(|error| {
             tracing::error!(%error, "Cannot publish audio");
@@ -352,10 +446,47 @@ mod tests {
 
     #[test]
     fn youtube_links_only() {
-        assert!(is_youtube_url("https://www.youtube.com/watch?v=abc"));
-        assert!(is_youtube_url(" https://youtu.be/abc "));
+        assert!(is_youtube_url(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        ));
+        assert!(is_youtube_url(" https://youtu.be/dQw4w9WgXcQ "));
         assert!(!is_youtube_url("https://youtube.com.evil.example/video"));
         assert!(!is_youtube_url("file:///etc/passwd"));
+        for url in [
+            "https://youtube.com@evil.example/x",
+            "https://user@youtube.com/watch?v=x",
+            "https://youtu.be:444/x",
+            "http://youtube.com/watch?v=x",
+            "https://youtube.com.evil.com/x",
+            "https://127.0.0.1/x",
+        ] {
+            assert!(!is_youtube_url(url), "{url}");
+        }
+        assert!(is_youtube_url(
+            "https://WWW.YOUTUBE.COM:443/watch?v=dQw4w9WgXcQ"
+        ));
+    }
+
+    #[test]
+    fn restricts_downloads_to_one_canonical_video() {
+        for input in [
+            "https://youtube.com/playlist?list=abc",
+            "https://youtube.com/@channel",
+            "https://youtu.be/dQw4w9WgXcQ/extra",
+            "https://youtube.com/watch?v=dQw4w9WgXcQ&v=abcdefghijk",
+        ] {
+            assert!(!is_youtube_url(input), "{input}");
+        }
+        for input in [
+            "https://youtu.be/dQw4w9WgXcQ?list=abc",
+            "https://youtube.com/shorts/dQw4w9WgXcQ",
+            "https://youtube.com/watch?v=dQw4w9WgXcQ&list=abc",
+        ] {
+            assert_eq!(
+                youtube_video_url(input).as_deref(),
+                Some("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            );
+        }
     }
 
     #[tokio::test]
@@ -373,7 +504,7 @@ mod tests {
     #[tokio::test]
     async fn reject_invalid_audio_quality() {
         let error = youtube_mp3_handler(Json(YoutubeAudioRequest {
-            url: "https://youtu.be/abc".into(),
+            url: "https://youtu.be/dQw4w9WgXcQ".into(),
             quality: 999,
         }))
         .await

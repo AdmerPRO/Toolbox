@@ -1,6 +1,8 @@
 mod api;
+mod process;
 mod rate_limit;
 mod routes;
+mod security;
 mod storage;
 mod utils;
 
@@ -34,6 +36,7 @@ async fn main() -> Result<()> {
         .init();
 
     info!("Loading server...");
+    storage::validate_config()?;
     storage::start_archiver();
 
     let host = env::var("ADDRESS").unwrap_or_else(|_| "127.0.0.1".into());
@@ -146,6 +149,7 @@ async fn main() -> Result<()> {
         limiter,
         rate_limit::middleware,
     ));
+    app = app.layer(axum::middleware::from_fn(security::headers));
     let listener = tokio::net::TcpListener::bind(&bind_address)
         .await
         .context("Failed connecting to address")?;
