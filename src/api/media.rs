@@ -265,18 +265,32 @@ async fn image_job(
         )
     })?;
     let extension = receive(multipart, work.path(), IMAGE_LIMIT, false).await?;
+    let input_path = std::fs::read_dir(work.path())
+        .map_err(internal)?
+        .next()
+        .ok_or_else(|| bad("Missing input file."))?
+        .map_err(internal)?
+        .path();
+    let hash_path = input_path.clone();
+    let hash = tokio::task::spawn_blocking(move || crate::result_cache::file_hash(&hash_path))
+        .await
+        .map_err(internal)?
+        .map_err(internal)?;
+    let options = serde_json::to_string(&(&extension, size)).map_err(internal)?;
+    let cache_key = crate::result_cache::key("image", &hash, &options);
+    let cache_guard = crate::result_cache::lock(&cache_key).await;
+    if let Some(download_url) = crate::result_cache::lookup(&cache_key, uploader_ip)
+        .await
+        .map_err(internal)?
+    {
+        return Ok(Json(YoutubeDownload { download_url }));
+    }
+
     let url = tokio::task::spawn_blocking(move || {
         let _client_permit = client_permit;
         let _permit = permit;
-        let input = std::fs::read(
-            std::fs::read_dir(work.path())
-                .map_err(internal)?
-                .next()
-                .ok_or_else(|| bad("Missing input file."))?
-                .map_err(internal)?
-                .path(),
-        )
-        .map_err(internal)?;
+        let _cache_guard = cache_guard;
+        let input = std::fs::read(input_path).map_err(internal)?;
         let data = if size.is_some() {
             convert_image_sized(&input, &extension, size)
         } else {
@@ -289,7 +303,9 @@ async fn image_job(
         let mut file = std::fs::File::create(work.path().join(&filename)).map_err(internal)?;
         file.write_all(&data).map_err(internal)?;
         drop(file);
-        storage::publish(&work, &filename, uploader_ip).map_err(internal)
+        let url = storage::publish(&work, &filename, uploader_ip).map_err(internal)?;
+        crate::result_cache::store(&cache_key, &url);
+        Ok::<_, Error>(url)
     })
     .await
     .map_err(internal)??;
@@ -326,6 +342,21 @@ async fn video_job(
         )
     })?;
     receive(multipart, work.path(), VIDEO_LIMIT, true).await?;
+    let hash_path = work.path().join("source.mp4");
+    let hash = tokio::task::spawn_blocking(move || crate::result_cache::file_hash(&hash_path))
+        .await
+        .map_err(internal)?
+        .map_err(internal)?;
+    let cache_key =
+        crate::result_cache::key(if mute { "mute" } else { "extract-audio" }, &hash, "v1");
+    let _cache_guard = crate::result_cache::lock(&cache_key).await;
+    if let Some(download_url) = crate::result_cache::lookup(&cache_key, uploader_ip)
+        .await
+        .map_err(internal)?
+    {
+        return Ok(Json(YoutubeDownload { download_url }));
+    }
+
     probe_video(&work.path().join("source.mp4"), mute).await?;
     let filename = format!(
         "{}.{}",
@@ -394,6 +425,7 @@ async fn video_job(
         }));
     }
     let url = storage::publish(&work, &filename, uploader_ip).map_err(internal)?;
+    crate::result_cache::store_async(cache_key, url.clone()).await;
     Ok(Json(YoutubeDownload { download_url: url }))
 }
 

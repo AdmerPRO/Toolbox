@@ -509,6 +509,16 @@ pub async fn youtube_download_handler(
         return Err(bad_request("Choose a valid video quality."));
     }
 
+    let canonical_url = media_video_url(&request.url).unwrap();
+    let cache_key =
+        crate::result_cache::key("download-mp4", &canonical_url, &request.quality.to_string());
+    let _cache_guard = crate::result_cache::lock(&cache_key).await;
+    if let Some(download_url) = crate::result_cache::lookup(&cache_key, uploader_ip)
+        .await
+        .map_err(storage_error)?
+    {
+        return Ok(Json(YoutubeDownload { download_url }));
+    }
     let _slot = crate::resources::acquire()?;
     let work = crate::storage::prepare(2 * 1024 * 1024 * 1024)
         .await
@@ -528,6 +538,7 @@ pub async fn youtube_download_handler(
         )
     })?;
 
+    crate::result_cache::store_async(cache_key, download_url.clone()).await;
     Ok(Json(YoutubeDownload { download_url }))
 }
 
@@ -685,6 +696,17 @@ pub async fn youtube_mp3_handler(
         );
         return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
     }
+
+    let canonical_url = media_video_url(&request.url).unwrap();
+    let cache_key =
+        crate::result_cache::key("download-mp3", &canonical_url, &request.quality.to_string());
+    let _cache_guard = crate::result_cache::lock(&cache_key).await;
+    if let Some(download_url) = crate::result_cache::lookup(&cache_key, uploader_ip)
+        .await
+        .map_err(storage_error)?
+    {
+        return Ok(Json(YoutubeDownload { download_url }));
+    }
     let _slot = crate::resources::acquire()?;
     let work = crate::storage::prepare(2 * 1024 * 1024 * 1024)
         .await
@@ -726,21 +748,18 @@ pub async fn youtube_mp3_handler(
             "Audio download failed. Check that yt-dlp and FFmpeg are installed and the video is available.".into()));
     }
     check_download(&path).await?;
-    Ok(Json(YoutubeDownload {
-        download_url: crate::storage::publish_youtube(work, filename, uploader_ip)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "Cannot publish audio");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Could not store the audio file.".into(),
-                )
-            })
-            .map(|download_url| {
-                info!(%download_url, "MP3 download ready");
-                download_url
-            })?,
-    }))
+    let download_url = crate::storage::publish_youtube(work, filename, uploader_ip)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Cannot publish audio");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Could not store the audio file.".into(),
+            )
+        })?;
+    crate::result_cache::store_async(cache_key, download_url.clone()).await;
+    info!(%download_url, "MP3 download ready");
+    Ok(Json(YoutubeDownload { download_url }))
 }
 
 #[cfg(test)]

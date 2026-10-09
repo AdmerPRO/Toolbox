@@ -15,7 +15,7 @@ pub const POLICY_VERSION: &str = "2026-10-03";
 type FileSnapshot = (String, String, String, Option<String>);
 
 pub struct Audit {
-    connection: Mutex<Connection>,
+    pub(crate) connection: Mutex<Connection>,
 }
 pub struct FileRecord<'a> {
     pub id: &'a str,
@@ -74,6 +74,17 @@ impl Audit {
                 ip TEXT NOT NULL, file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
                 uploaded_at TEXT NOT NULL, PRIMARY KEY(ip, file_id), UNIQUE(file_id)
             );
+            CREATE TABLE IF NOT EXISTS result_cache (
+                cache_key TEXT PRIMARY KEY, file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                download_url TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cache_submissions (
+                file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                ip TEXT NOT NULL, first_requested_at TEXT NOT NULL, last_requested_at TEXT NOT NULL,
+                request_count INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY(file_id, ip)
+            );
+            CREATE INDEX IF NOT EXISTS result_cache_file ON result_cache(file_id);
             CREATE INDEX IF NOT EXISTS files_archive ON files(archive_path);
             CREATE INDEX IF NOT EXISTS files_uploader ON files(uploader_ip);
             CREATE INDEX IF NOT EXISTS file_access_viewer ON file_access(viewer_ip);")?;
@@ -709,7 +720,7 @@ mod tests {
                     [],
                     |r| r.get::<_, i64>(0)
                 )?,
-                3
+                5
             );
         }
         audit.archived(&["file1".into()], "archives/test.zip")?;

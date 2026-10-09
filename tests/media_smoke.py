@@ -183,6 +183,9 @@ def main():
                     assert get(roundtrip)[0].startswith(b"\x89PNG")
 
                 resized = upload("/api/convert/resize?width=80&height=80", "sample.png", image.read_bytes(), "png")
+                assert upload("/api/convert/resize?width=80&height=80", "renamed.png", image.read_bytes(), "png") == resized
+                different_size = upload("/api/convert/resize?width=70&height=70", "sample.png", image.read_bytes(), "png")
+                assert different_size != resized
                 resized_file = root / "resized.png"
                 resized_file.write_bytes(get(resized)[0])
                 dimensions = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "json", str(resized_file)]))["streams"][0]
@@ -193,24 +196,46 @@ def main():
                 video = root / "sample.mp4"
                 subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=1", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "mpeg4", "-c:a", "aac", "-shortest", str(video)], check=True)
                 url = upload("/api/convert/audio", "sample.mp4", video.read_bytes())
+                assert upload("/api/convert/audio", "renamed.mp4", video.read_bytes()) == url
                 content, headers = get(url)
                 assert headers["Content-Type"] == "audio/mpeg"
                 audio = root / "result.mp3"
                 audio.write_bytes(content)
                 subprocess.run(["ffmpeg", "-v", "error", "-i", str(audio), "-f", "null", "-"], check=True)
                 muted_url = upload("/api/convert/mute", "sample.mp4", video.read_bytes())
+                assert muted_url != url
+                assert upload("/api/convert/mute", "renamed.mp4", video.read_bytes()) == muted_url
                 muted = root / "muted.mp4"
                 muted_content, muted_headers = get(muted_url)
                 assert muted_headers["Content-Type"] == "video/mp4"
                 muted.write_bytes(muted_content)
                 streams = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", str(muted)]))["streams"]
                 assert streams == [{"codec_type": "video"}], streams
+                # Cache hits must return before starting yt-dlp, for each downloader format.
+                import hashlib
+                canonical = "https://www.instagram.com/reel/ABC_123/"
+                with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
+                    for operation, quality, result_url in [("download-mp4", "720", muted_url), ("download-mp3", "192", url)]:
+                        cache_key = hashlib.sha256(json.dumps(["v1", operation, canonical, quality], separators=(",", ":")).encode()).hexdigest()
+                        file_id = result_url.rsplit("/", 1)[1].rsplit(".", 1)[0]
+                        database.execute("INSERT INTO result_cache(cache_key,file_id,download_url) VALUES (?,?,?)", (cache_key, file_id, result_url))
+                    database.commit()
+                    before = database.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+                for endpoint, quality, expected_url in [("/api/youtube/download", 720, muted_url), ("/api/youtube/download/mp3", 192, url)]:
+                    for source in [canonical, "https://www.instagram.com/minecraft/reel/ABC_123/?igsh=tracking"]:
+                        request = urllib.request.Request(base + endpoint, data=json.dumps({"url": source, "quality": quality}).encode(), headers={"Content-Type": "application/json", "Cookie": "privacy_policy=2026-10-03"})
+                        with urllib.request.urlopen(request, timeout=30) as response:
+                            assert json.load(response)["download_url"] == expected_url
+                with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
+                    assert database.execute("SELECT COUNT(*) FROM files").fetchone()[0] == before
                 date, filename = url.rsplit("/", 2)[1:]
                 job = root / "storage" / "active" / date / filename.rsplit(".", 1)[0]
                 assert (job / "source.mp4").read_bytes() == video.read_bytes()
                 old = time.time() - 7 * 24 * 3600 - 1
                 os.utime(job / filename, (old, old))
                 get(url, 410)
+                refreshed = upload("/api/convert/audio", "sample.mp4", video.read_bytes())
+                assert refreshed != url, "Expired output was reused"
                 get(f"/api/files/{date}/source.mp4", 400)
                 get(f"/api/files/31022026/{filename}", 400)
                 get(f"/api/files/{date}/invalid.mp3", 400)
@@ -346,7 +371,7 @@ def main():
                 assert get(recovered)[0].startswith(b"\x89PNG")
                 assert (job / filename).exists(), "Low disk archiving removed original files"
                 assert not list((root / "storage" / "staging").iterdir()), "Rejected jobs leaked staging files"
-                print("Media smoke checks passed: conversions, privacy acknowledgement, audit records, headers, slow upload timeout, storage admission, and expiry.")
+                print("Media smoke checks passed: conversions, result cache reuse and expiry, downloader cache hits, privacy acknowledgement, audit records, headers, slow upload timeout, storage admission, and expiry.")
             finally:
                 server.terminate()
                 try:

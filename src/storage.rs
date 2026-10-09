@@ -226,7 +226,7 @@ pub async fn publish_youtube(
     .await?
 }
 
-fn valid_filename(filename: &str) -> bool {
+pub(crate) fn valid_filename(filename: &str) -> bool {
     filename.rsplit_once('.').is_some_and(|(id, ext)| {
         uuid::Uuid::parse_str(id).is_ok()
             && matches!(

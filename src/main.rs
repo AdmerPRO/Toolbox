@@ -3,6 +3,7 @@ mod audit;
 mod process;
 mod rate_limit;
 mod resources;
+mod result_cache;
 mod routes;
 mod security;
 mod storage;

@@ -55,6 +55,7 @@ mime = "0.3"
 
 # Hashing
 sha = "1.0.3"
+sha2 = "0.10.9"
 
 # Image processing
 image = "0.25"
