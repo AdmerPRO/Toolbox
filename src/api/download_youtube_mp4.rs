@@ -45,12 +45,14 @@ fn download_options(command: &mut Command) -> &mut Command {
         "--ignore-config",
         "--no-plugin-dirs",
         "--no-playlist",
+        "--playlist-end",
+        "1",
         "--socket-timeout",
         "30",
         "--max-filesize",
         "524288000",
         "--match-filters",
-        "!is_live & duration > 0 & duration <= 7200",
+        "!is_live & duration >? 0 & duration <=? 7200",
         "--no-progress",
         "--no-cache-dir",
         "--retries",
@@ -77,6 +79,28 @@ async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, Strin
             StatusCode::PAYLOAD_TOO_LARGE,
             "Downloaded file exceeds the 500 MiB limit.".into(),
         ));
+    }
+    // Instagram may omit duration in metadata. Validate the actual output before publishing.
+    let output = run(
+        Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+            ])
+            .arg(path),
+        30,
+    )
+    .await
+    .map_err(storage_error)?;
+    let duration = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        .ok()
+        .and_then(|data| data["format"]["duration"].as_str()?.parse::<f64>().ok());
+    if !output.status.success() || !duration.is_some_and(valid_duration) {
+        return Err(bad_request("Choose a recorded video up to 2 hours."));
     }
     Ok(())
 }
@@ -153,6 +177,132 @@ fn youtube_video_url(input: &str) -> Option<String> {
     Some(format!("https://www.youtube.com/watch?v={id}"))
 }
 
+fn media_video_url(input: &str) -> Option<String> {
+    if let Some(url) = youtube_video_url(input) {
+        return Some(url);
+    }
+    let url = url::Url::parse(input.trim()).ok()?;
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port_or_known_default() != Some(443)
+    {
+        return None;
+    }
+    let segments: Vec<_> = url.path().trim_matches('/').split('/').collect();
+    let token = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 128
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    };
+    match url.host_str()? {
+        "instagram.com" | "www.instagram.com" => {
+            let post = match segments.as_slice() {
+                [kind, id] => Some((*kind, *id)),
+                [username, kind, id]
+                    if !username.is_empty()
+                        && username.len() <= 30
+                        && username
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.') =>
+                {
+                    Some((*kind, *id))
+                }
+                _ => None,
+            };
+            let (kind, id) = post?;
+            if !matches!(kind, "p" | "reel" | "reels" | "tv") || !token(id) {
+                return None;
+            }
+            let kind = if kind == "reels" { "reel" } else { kind };
+            Some(format!("https://www.instagram.com/{kind}/{id}/"))
+        }
+
+        "tiktok.com" | "www.tiktok.com" | "m.tiktok.com" => {
+            if segments.len() == 3
+                && segments[0].starts_with('@')
+                && segments[0][1..]
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.')
+                && segments[0].len() > 1
+                && segments[1] == "video"
+                && !segments[2].is_empty()
+                && segments[2].len() <= 32
+                && segments[2].bytes().all(|b| b.is_ascii_digit())
+            {
+                Some(format!(
+                    "https://www.tiktok.com/{}/video/{}",
+                    segments[0], segments[2]
+                ))
+            } else if segments.len() == 2 && segments[0] == "t" && token(segments[1]) {
+                Some(format!("https://www.tiktok.com/t/{}/", segments[1]))
+            } else {
+                None
+            }
+        }
+        "vm.tiktok.com" | "vt.tiktok.com" if segments.len() == 1 && token(segments[0]) => {
+            Some(format!("https://{}/{}/", url.host_str()?, segments[0]))
+        }
+        _ => None,
+    }
+}
+
+fn valid_duration(seconds: f64) -> bool {
+    seconds.is_finite() && seconds > 0.0 && seconds <= 7200.0
+}
+
+fn recorded_video_metadata(video: &serde_json::Value) -> bool {
+    video["is_live"].as_bool() != Some(true)
+        && !matches!(
+            video["live_status"].as_str(),
+            Some("is_live" | "is_upcoming")
+        )
+        && (video["duration"].is_null() || video["duration"].as_f64().is_some_and(valid_duration))
+}
+
+fn permitted_thumbnail(input: &str) -> bool {
+    url::Url::parse(input).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port_or_known_default() == Some(443)
+            && url.host_str().is_some_and(|host| {
+                [
+                    "i.ytimg.com",
+                    "img.youtube.com",
+                    "tiktokcdn.com",
+                    "tiktokcdn-us.com",
+                    "tiktokcdn-eu.com",
+                    "tiktok.com",
+                    "ibytedtos.com",
+                    "byteoversea.com",
+                    "cdninstagram.com",
+                    "fbcdn.net",
+                ]
+                .iter()
+                .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+            })
+    })
+}
+
+fn video_thumbnail(video: &serde_json::Value) -> Option<String> {
+    video["thumbnail"]
+        .as_str()
+        .filter(|value| permitted_thumbnail(value))
+        .or_else(|| {
+            video["thumbnails"]
+                .as_array()?
+                .iter()
+                .rev()
+                .filter_map(|thumbnail| thumbnail["url"].as_str())
+                .find(|value| permitted_thumbnail(value))
+        })
+        .map(str::to_owned)
+}
+
+#[cfg(test)]
 fn is_youtube_url(input: &str) -> bool {
     youtube_video_url(input).is_some()
 }
@@ -164,12 +314,14 @@ fn bad_request(message: impl Into<String>) -> (StatusCode, String) {
 pub async fn youtube_info_handler(
     Json(request): Json<YoutubeUrlRequest>,
 ) -> Result<Json<YoutubeInfo>, (StatusCode, String)> {
-    info!("YouTube video info requested");
-    if !is_youtube_url(&request.url) {
-        return Err(bad_request("Provide a valid YouTube video link."));
+    info!("Media video info requested");
+    if media_video_url(&request.url).is_none() {
+        return Err(bad_request(
+            "Provide a valid YouTube, Instagram or TikTok video link.",
+        ));
     }
 
-    let url = youtube_video_url(&request.url).unwrap();
+    let url = media_video_url(&request.url).unwrap();
     if let Some(info) = INFO_CACHE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -199,10 +351,12 @@ pub async fn youtube_info_handler(
                 "1",
                 "--dump-single-json",
                 "--no-playlist",
+                "--playlist-end",
+                "1",
                 "--skip-download",
                 "--",
             ])
-            .arg(youtube_video_url(&request.url).unwrap()),
+            .arg(media_video_url(&request.url).unwrap()),
         30,
     )
     .await
@@ -215,7 +369,7 @@ pub async fn youtube_info_handler(
 
     if !output.status.success() {
         return Err(bad_request(
-            "Could not retrieve information about this video.",
+            "Could not retrieve this video. Use a public video from YouTube, Instagram or TikTok that is available without login.",
         ));
     }
 
@@ -226,26 +380,16 @@ pub async fn youtube_info_handler(
         )
     })?;
 
-    let title = video["title"]
-        .as_str()
-        .unwrap_or("YouTube video")
-        .to_owned();
-    if video["is_live"].as_bool() == Some(true)
-        || !video["duration"]
-            .as_f64()
-            .is_some_and(|d| d.is_finite() && d > 0.0 && d <= 7200.0)
-    {
+    if matches!(video["_type"].as_str(), Some("playlist" | "multi_video")) {
+        return Err(bad_request(
+            "Choose a link to one video, not an album or playlist.",
+        ));
+    }
+    let title = video["title"].as_str().unwrap_or("Video").to_owned();
+    if !recorded_video_metadata(&video) {
         return Err(bad_request("Choose a recorded video up to 2 hours."));
     }
-    let thumbnail = video["thumbnail"]
-        .as_str()
-        .filter(|value| {
-            url::Url::parse(value).is_ok_and(|u| {
-                u.scheme() == "https"
-                    && matches!(u.host_str(), Some("i.ytimg.com" | "img.youtube.com"))
-            })
-        })
-        .map(str::to_owned);
+    let thumbnail = video_thumbnail(&video);
     let mut qualities = video["formats"]
         .as_array()
         .into_iter()
@@ -258,6 +402,12 @@ pub async fn youtube_info_handler(
         })
         .collect::<Vec<_>>();
 
+    if let Some(height) = video["height"]
+        .as_u64()
+        .and_then(|height| u32::try_from(height).ok())
+    {
+        qualities.push(height);
+    }
     qualities.sort_unstable();
     qualities.dedup();
     qualities.retain(|quality| (144..=2160).contains(quality));
@@ -281,9 +431,11 @@ pub async fn youtube_download_handler(
     >,
     Json(request): Json<YoutubeDownloadRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
-    info!("YouTube MP4 download requested");
-    if !is_youtube_url(&request.url) {
-        return Err(bad_request("Provide a valid YouTube video link."));
+    info!("Media MP4 download requested");
+    if media_video_url(&request.url).is_none() {
+        return Err(bad_request(
+            "Provide a valid YouTube, Instagram or TikTok video link.",
+        ));
     }
 
     if !(144..=2160).contains(&request.quality) {
@@ -295,7 +447,7 @@ pub async fn youtube_download_handler(
         .await
         .map_err(storage_error)?;
     let download_url = download_youtube_mp4(
-        &youtube_video_url(&request.url).unwrap(),
+        &media_video_url(&request.url).unwrap(),
         request.quality,
         work,
         uploader_ip,
@@ -445,9 +597,11 @@ pub async fn youtube_mp3_handler(
     >,
     Json(request): Json<YoutubeAudioRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
-    info!("YouTube MP3 download requested");
-    if !is_youtube_url(&request.url) {
-        return Err(bad_request("Provide a valid YouTube video link."));
+    info!("Media MP3 download requested");
+    if media_video_url(&request.url).is_none() {
+        return Err(bad_request(
+            "Provide a valid YouTube, Instagram or TikTok video link.",
+        ));
     }
     if !matches!(request.quality, 128 | 192 | 256 | 320) {
         return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
@@ -473,7 +627,7 @@ pub async fn youtube_mp3_handler(
             .arg("-o")
             .arg(&path)
             .arg("--")
-            .arg(youtube_video_url(&request.url).unwrap()),
+            .arg(media_video_url(&request.url).unwrap()),
         600,
         Some(work.path()),
         MAX_JOB_BYTES,
@@ -542,6 +696,117 @@ mod tests {
                 .get("128", start + std::time::Duration::from_secs(301))
                 .is_none()
         );
+    }
+
+    #[test]
+    fn missing_metadata_duration_is_checked_after_download() {
+        for video in [
+            serde_json::json!({}),
+            serde_json::json!({"duration": null}),
+            serde_json::json!({"duration": 15}),
+            serde_json::json!({"duration": 7200}),
+        ] {
+            assert!(recorded_video_metadata(&video));
+        }
+        for video in [
+            serde_json::json!({"duration": 7201}),
+            serde_json::json!({"duration": 0}),
+            serde_json::json!({"duration": -1}),
+            serde_json::json!({"duration": "invalid"}),
+            serde_json::json!({"is_live": true}),
+            serde_json::json!({"live_status": "is_upcoming"}),
+        ] {
+            assert!(!recorded_video_metadata(&video));
+        }
+        assert!(!valid_duration(f64::NAN));
+        assert!(!valid_duration(f64::INFINITY));
+        assert!(!valid_duration(7201.0));
+        assert!(valid_duration(15.0));
+    }
+
+    #[test]
+    fn social_thumbnails_accept_cdn_hosts_and_fallback() {
+        for url in [
+            "https://p16-sign.tiktokcdn-us.com/cover.jpg?signature=abc",
+            "https://p16.tiktokcdn.com/cover.jpg",
+            "https://scontent.cdninstagram.com/cover.jpg",
+        ] {
+            assert!(permitted_thumbnail(url));
+            assert_eq!(
+                video_thumbnail(&serde_json::json!({"thumbnail": url})).as_deref(),
+                Some(url)
+            );
+        }
+        for url in [
+            "https://tiktokcdn.com.evil.example/cover.jpg",
+            "http://p16.tiktokcdn.com/cover.jpg",
+            "https://user@p16.tiktokcdn.com/cover.jpg",
+            "https://127.0.0.1/cover.jpg",
+        ] {
+            assert!(!permitted_thumbnail(url));
+        }
+        let video = serde_json::json!({"thumbnail": "https://evil.example/a.jpg",
+            "thumbnails": [{"url": "https://p16.tiktokcdn.com/cover.jpg"}]});
+        assert_eq!(
+            video_thumbnail(&video).as_deref(),
+            Some("https://p16.tiktokcdn.com/cover.jpg")
+        );
+    }
+
+    #[test]
+    fn social_video_links_are_canonical_and_restricted() {
+        for (input, expected) in [
+            (
+                "https://www.instagram.com/minecraft/reel/ABC_123/?igsh=abc",
+                "https://www.instagram.com/reel/ABC_123/",
+            ),
+            (
+                "https://instagram.com/some.user/p/ABC-123/",
+                "https://www.instagram.com/p/ABC-123/",
+            ),
+            (
+                "https://www.instagram.com/reel/ABC_123/?igsh=abc",
+                "https://www.instagram.com/reel/ABC_123/",
+            ),
+            (
+                "https://instagram.com/p/ABC-123/",
+                "https://www.instagram.com/p/ABC-123/",
+            ),
+            (
+                "https://m.tiktok.com/@some.user/video/123456?share=1",
+                "https://www.tiktok.com/@some.user/video/123456",
+            ),
+            (
+                "https://vm.tiktok.com/ABC123/?share=1",
+                "https://vm.tiktok.com/ABC123/",
+            ),
+            (
+                "https://vt.tiktok.com/ABC123/",
+                "https://vt.tiktok.com/ABC123/",
+            ),
+            (
+                "https://www.tiktok.com/t/ABC123/",
+                "https://www.tiktok.com/t/ABC123/",
+            ),
+        ] {
+            assert_eq!(media_video_url(input).as_deref(), Some(expected));
+        }
+        for input in [
+            "https://instagram.com/profile/",
+            "https://instagram.com/bad%20user/reel/abc/",
+            "https://instagram.com/minecraft/reel/abc/extra",
+            "https://tiktok.com/@user",
+            "https://instagram.com.evil.example/reel/abc/",
+            "https://user@instagram.com/reel/abc/",
+            "http://vm.tiktok.com/abc/",
+            "https://tiktok.com:444/@user/video/123",
+            "https://www.tiktok.com/@user/photo/123",
+            "https://instagram.com/reel/abc/extra",
+            "https://vm.tiktok.com/abc/extra",
+            "https://127.0.0.1/reel/abc/",
+        ] {
+            assert!(media_video_url(input).is_none(), "{input}");
+        }
     }
 
     #[test]

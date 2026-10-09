@@ -38,9 +38,9 @@ form.addEventListener('submit', async event => {
     if (busy) return;
     const url = input.value.trim();
     let parsed;
-    try { parsed = new URL(url); } catch { message('Enter a valid YouTube link.', true); return; }
-    if (parsed.protocol !== 'https:' || !['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be'].includes(parsed.hostname)) {
-        message('Enter an HTTPS link from YouTube or youtu.be.', true); return;
+    try { parsed = new URL(url); } catch { message('Enter a valid YouTube, Instagram or TikTok link.', true); return; }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || (parsed.port && parsed.port !== '443') || !['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'instagram.com', 'www.instagram.com', 'tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'].includes(parsed.hostname)) {
+        message('Enter an HTTPS video link from YouTube, Instagram or TikTok.', true); return;
     }
     result.hidden = save.hidden = true;
     selectedUrl = '';
