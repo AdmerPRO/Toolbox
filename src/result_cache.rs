@@ -30,11 +30,21 @@ pub async fn lock(key: &str) -> tokio::sync::OwnedMutexGuard<()> {
     lock.lock_owned().await
 }
 
+fn hex_digest(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        text.push(HEX[(byte >> 4) as usize] as char);
+        text.push(HEX[(byte & 15) as usize] as char);
+    }
+    text
+}
+
 pub fn key(operation: &str, source: &str, options: &str) -> String {
     // Length-prefixed JSON fields keep operation, source and settings unambiguous.
     let bytes =
         serde_json::to_vec(&("v1", operation, source, options)).expect("String serialization");
-    format!("{:x}", Sha256::digest(bytes))
+    hex_digest(&Sha256::digest(bytes))
 }
 
 pub fn file_hash(path: &Path) -> Result<String> {
@@ -48,7 +58,7 @@ pub fn file_hash(path: &Path) -> Result<String> {
         }
         hash.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", hash.finalize()))
+    Ok(hex_digest(&hash.finalize()))
 }
 
 fn result_path(root: &Path, url: &str) -> Option<(String, PathBuf)> {

@@ -223,7 +223,7 @@ def main():
                     before = database.execute("SELECT COUNT(*) FROM files").fetchone()[0]
                 for endpoint, quality, expected_url in [("/api/youtube/download", 720, muted_url), ("/api/youtube/download/mp3", 192, url)]:
                     for source in [canonical, "https://www.instagram.com/minecraft/reel/ABC_123/?igsh=tracking"]:
-                        request = urllib.request.Request(base + endpoint, data=json.dumps({"url": source, "quality": quality}).encode(), headers={"Content-Type": "application/json", "Cookie": "privacy_policy=2026-10-03"})
+                        request = urllib.request.Request(base + endpoint, data=json.dumps({"url": source, "quality": quality, "is_author": True}).encode(), headers={"Content-Type": "application/json", "Cookie": "privacy_policy=2026-10-03"})
                         with urllib.request.urlopen(request, timeout=30) as response:
                             assert json.load(response)["download_url"] == expected_url
                 with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
@@ -361,7 +361,7 @@ def main():
                 upload("/api/convert/audio", "sample.mp4", video.read_bytes(), expected=503)
                 for endpoint, quality in [("/api/youtube/download", 720), ("/api/youtube/download/mp3", 192)]:
                     request = urllib.request.Request(base + endpoint,
-                        data=json.dumps({"url": "https://youtu.be/dQw4w9WgXcQ", "quality": quality}).encode(),
+                        data=json.dumps({"url": "https://youtu.be/dQw4w9WgXcQ", "quality": quality, "is_author": True}).encode(),
                         headers={"Content-Type": "application/json", "Cookie": "privacy_policy=2026-10-03"})
                     try:
                         urllib.request.urlopen(request, timeout=5).close()

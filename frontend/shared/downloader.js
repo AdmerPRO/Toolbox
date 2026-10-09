@@ -9,6 +9,7 @@ const quality = document.querySelector('#quality');
 const download = document.querySelector('#download-button');
 const save = document.querySelector('#download-link');
 const find = form.querySelector('button');
+const author = document.querySelector('#is-author');
 const audio = document.body.dataset.format === 'mp3';
 let selectedUrl = '';
 let busy = false;
@@ -19,7 +20,7 @@ function message(text, error = false, loading = false) {
 }
 function lock(value) {
     busy = value;
-    find.disabled = download.disabled = input.disabled = quality.disabled = value;
+    find.disabled = download.disabled = input.disabled = quality.disabled = author.disabled = value;
     form.setAttribute('aria-busy', String(value));
 }
 async function request(endpoint, data) {
@@ -31,6 +32,9 @@ input.addEventListener('input', () => {
     selectedUrl = '';
     result.hidden = save.hidden = true;
     message('');
+});
+author.addEventListener('change', () => {
+    if (!author.checked) save.hidden = true;
 });
 thumbnail.addEventListener('error', () => { thumbnail.hidden = true; });
 form.addEventListener('submit', async event => {
@@ -69,11 +73,12 @@ form.addEventListener('submit', async event => {
 });
 download.addEventListener('click', async () => {
     if (busy || !selectedUrl) return;
+    if (!author.checked) { message('Confirm that you are the author of this material.', true); author.focus(); return; }
     lock(true);
     save.hidden = true;
     message(audio ? 'Preparing your MP3. This can take a few minutes...' : 'Preparing your MP4. This can take a few minutes...', false, true);
     try {
-        const file = await request(audio ? '/api/youtube/download/mp3' : '/api/youtube/download', { url: selectedUrl, quality: Number(quality.value) });
+        const file = await request(audio ? '/api/youtube/download/mp3' : '/api/youtube/download', { url: selectedUrl, quality: Number(quality.value), is_author: author.checked });
         save.href = file.download_url;
         save.setAttribute('download', '');
         save.hidden = false;

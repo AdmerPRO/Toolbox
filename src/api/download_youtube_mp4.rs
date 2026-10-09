@@ -166,6 +166,8 @@ pub struct YoutubeUrlRequest {
 pub struct YoutubeDownloadRequest {
     pub url: String,
     pub quality: u32,
+    #[serde(default)]
+    pub is_author: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -493,6 +495,11 @@ pub async fn youtube_download_handler(
     >,
     Json(request): Json<YoutubeDownloadRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
+    if !request.is_author {
+        return Err(bad_request(
+            "Confirm that you are the author of this material.",
+        ));
+    }
     info!(quality = request.quality, "Media MP4 download requested");
     if media_video_url(&request.url).is_none() {
         tracing::warn!("Media request rejected: unsupported or malformed video URL");
@@ -669,6 +676,8 @@ pub async fn download_file_handler(
 pub struct YoutubeAudioRequest {
     pub url: String,
     pub quality: u32,
+    #[serde(default)]
+    pub is_author: bool,
 }
 
 #[tracing::instrument(skip_all, fields(operation = "mp3", request_id = %uuid::Uuid::new_v4()))]
@@ -678,6 +687,11 @@ pub async fn youtube_mp3_handler(
     >,
     Json(request): Json<YoutubeAudioRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
+    if !request.is_author {
+        return Err(bad_request(
+            "Confirm that you are the author of this material.",
+        ));
+    }
     info!(
         bitrate_kbps = request.quality,
         "Media MP3 download requested"
@@ -972,12 +986,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn require_authorship_before_download_or_cache_lookup() {
+        let ip = crate::rate_limit::ClientIp("192.0.2.1".parse().unwrap());
+        let audio: YoutubeAudioRequest = serde_json::from_value(serde_json::json!({
+            "url": "https://youtu.be/dQw4w9WgXcQ", "quality": 192
+        }))
+        .unwrap();
+        assert!(!audio.is_author);
+        let error = youtube_mp3_handler(axum::Extension(ip), Json(audio))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        assert!(error.1.contains("author"));
+        let video = YoutubeDownloadRequest {
+            url: "https://youtu.be/dQw4w9WgXcQ".into(),
+            quality: 720,
+            is_author: false,
+        };
+        let error = youtube_download_handler(
+            axum::Extension(crate::rate_limit::ClientIp("192.0.2.1".parse().unwrap())),
+            Json(video),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        assert!(error.1.contains("author"));
+    }
+
+    #[tokio::test]
     async fn reject_invalid_audio_quality() {
         let error = youtube_mp3_handler(
             axum::Extension(crate::rate_limit::ClientIp("192.0.2.1".parse().unwrap())),
             Json(YoutubeAudioRequest {
                 url: "https://youtu.be/dQw4w9WgXcQ".into(),
                 quality: 999,
+                is_author: true,
             }),
         )
         .await

@@ -612,3 +612,6 @@ button:disabled {
 .seo-content p, .seo-content li { color: var(--muted); line-height: 1.75; }
 .seo-content li { margin-bottom: 8px; }
 .seo-content a { color: var(--accent); text-decoration: underline; }
+
+.author-confirmation { display: flex; align-items: flex-start; gap: .65rem; margin: 1rem 0; }
+.author-confirmation input[type="checkbox"] { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; margin: .15rem 0 0; }

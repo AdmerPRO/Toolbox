@@ -6,13 +6,13 @@ edition = "2024"
 [dependencies]
 
 # Async runtime
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io"] }
+tokio = { version = "1.53.2", features = ["full"] }
+tokio-util = { version = "0.7.20", features = ["io"] }
 
 # HTTP server
 axum = { version = "0.8", features = ["multipart", "ws"] }
 tower = "0.5"
-tower-http = { version = "0.7.0", features = ["cors", "trace", "limit", "fs"] }
+tower-http = { version = "0.7.1", features = ["cors", "trace", "limit", "fs"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -20,14 +20,14 @@ serde_json = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
 
 # HTTP client
-reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.13.5", features = ["json", "stream", "multipart"] }
 
 # Async streams
 futures = "0.3"
 tokio-stream = "0.1"
 
 # UUID
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1.27.0", features = ["v4", "serde"] }
 
 # Errors
 anyhow = "1"
@@ -45,7 +45,7 @@ walkdir = "2"
 tempfile = "3"
 fs2 = "0.4"
 url = "2"
-libc = "0.2"
+libc = "0.2.190"
 
 # Date & time
 chrono = { version = "0.4", features = ["serde"] }
@@ -55,7 +55,7 @@ mime = "0.3"
 
 # Hashing
 sha = "1.0.3"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 
 # Image processing
 image = "0.25"
@@ -70,7 +70,7 @@ yt-dlp = "2.8.2"
 # Misc
 rand = "0.10.3"
 regex = "1"
-zip = { version = "8.6", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.0", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }

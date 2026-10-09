@@ -226,7 +226,8 @@ impl Audit {
                     };
                 for index in 0..archive.len() {
                     let file = archive.by_index(index)?;
-                    let name = Path::new(file.name());
+                    let filename = file.name()?;
+                    let name = Path::new(filename.as_ref());
                     let Some((id, kind)) = name
                         .file_name()
                         .and_then(|s| s.to_str())
@@ -503,7 +504,8 @@ fn archive_inventory(
         let mut archive = zip::ZipArchive::new(std::fs::File::open(entry.path())?)?;
         for index in 0..archive.len() {
             let file = archive.by_index(index)?;
-            let path = Path::new(file.name());
+            let filename = file.name()?;
+            let path = Path::new(filename.as_ref());
             for candidate in [path.file_stem(), path.parent().and_then(|p| p.file_name())]
                 .into_iter()
                 .flatten()
