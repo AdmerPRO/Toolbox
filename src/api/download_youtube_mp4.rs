@@ -37,7 +37,40 @@ const MAX_YOUTUBE_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_JOB_BYTES: u64 = 1500 * 1024 * 1024;
 
 async fn run(command: &mut Command, seconds: u64) -> std::io::Result<Output> {
-    crate::process::run(command, seconds, None, 0).await
+    run_logged(command, seconds, None, 0).await
+}
+
+async fn run_logged(
+    command: &mut Command,
+    seconds: u64,
+    directory: Option<&std::path::Path>,
+    max_bytes: u64,
+) -> std::io::Result<Output> {
+    let program = command
+        .as_std()
+        .get_program()
+        .to_string_lossy()
+        .into_owned();
+    let started = std::time::Instant::now();
+    info!(tool = %program, timeout_seconds = seconds, "Media process started");
+    let output = crate::process::run(command, seconds, directory, max_bytes).await;
+    match &output {
+        Ok(output) => {
+            info!(tool = %program, exit_code = ?output.status.code(),
+                elapsed_ms = started.elapsed().as_millis(), stdout_bytes = output.stdout.len(),
+                stderr_bytes = output.stderr.len(), "Media process finished");
+            if !output.stderr.is_empty() {
+                let details: String = String::from_utf8_lossy(&output.stderr)
+                    .chars()
+                    .take(4000)
+                    .collect();
+                tracing::warn!(tool = %program, stderr = %details, "Media process diagnostics (first 4000 characters)");
+            }
+        }
+        Err(error) => tracing::error!(tool = %program, %error,
+            elapsed_ms = started.elapsed().as_millis(), "Media process could not complete"),
+    }
+    output
 }
 
 fn download_options(command: &mut Command) -> &mut Command {
@@ -74,7 +107,13 @@ fn storage_error(error: impl std::fmt::Display) -> (StatusCode, String) {
 
 async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, String)> {
     let size = fs::metadata(path).await.map_err(storage_error)?.len();
+    info!(file = %path.display(), bytes = size, "Checking downloaded media");
     if size == 0 || size > MAX_YOUTUBE_BYTES {
+        tracing::warn!(
+            bytes = size,
+            limit_bytes = MAX_YOUTUBE_BYTES,
+            "Downloaded media rejected: invalid file size"
+        );
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             "Downloaded file exceeds the 500 MiB limit.".into(),
@@ -100,8 +139,10 @@ async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, Strin
         .ok()
         .and_then(|data| data["format"]["duration"].as_str()?.parse::<f64>().ok());
     if !output.status.success() || !duration.is_some_and(valid_duration) {
+        tracing::warn!(file = %path.display(), duration_seconds = ?duration, "Downloaded media rejected: invalid duration");
         return Err(bad_request("Choose a recorded video up to 2 hours."));
     }
+    info!(file = %path.display(), bytes = size, duration_seconds = ?duration, "Downloaded media validated");
     Ok(())
 }
 
@@ -311,25 +352,31 @@ fn bad_request(message: impl Into<String>) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, message.into())
 }
 
+#[tracing::instrument(skip_all, fields(operation = "info", request_id = %uuid::Uuid::new_v4()))]
 pub async fn youtube_info_handler(
     Json(request): Json<YoutubeUrlRequest>,
 ) -> Result<Json<YoutubeInfo>, (StatusCode, String)> {
     info!("Media video info requested");
     if media_video_url(&request.url).is_none() {
+        tracing::warn!("Media request rejected: unsupported or malformed video URL");
         return Err(bad_request(
             "Provide a valid YouTube, Instagram or TikTok video link.",
         ));
     }
 
     let url = media_video_url(&request.url).unwrap();
+    info!(url = %url, "Video URL accepted");
     if let Some(info) = INFO_CACHE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&url, std::time::Instant::now())
     {
+        info!(url = %url, "Video metadata cache hit");
         return Ok(Json(info));
     }
+    info!(url = %url, "Video metadata cache miss");
     let _info_slot = INFO_SLOT.try_acquire().map_err(|_| {
+        tracing::warn!("Video metadata lookup rejected: lookup slot busy");
         (
             StatusCode::TOO_MANY_REQUESTS,
             "Video information lookup is busy. Please try again shortly.".into(),
@@ -360,7 +407,8 @@ pub async fn youtube_info_handler(
         30,
     )
     .await
-    .map_err(|_| {
+    .map_err(|error| {
+        tracing::error!(%error, "Video metadata process failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "yt-dlp is not installed on the server.".into(),
@@ -373,7 +421,8 @@ pub async fn youtube_info_handler(
         ));
     }
 
-    let video: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|_| {
+    let video: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        tracing::error!(%error, "Video metadata JSON is invalid");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "The server received invalid video data.".into(),
@@ -387,9 +436,20 @@ pub async fn youtube_info_handler(
     }
     let title = video["title"].as_str().unwrap_or("Video").to_owned();
     if !recorded_video_metadata(&video) {
+        tracing::warn!(duration = ?video["duration"], is_live = ?video["is_live"], live_status = ?video["live_status"], "Video metadata rejected");
         return Err(bad_request("Choose a recorded video up to 2 hours."));
     }
+    if video["duration"].is_null() {
+        info!("Metadata duration unavailable; duration will be checked after download");
+    }
     let thumbnail = video_thumbnail(&video);
+    if thumbnail.is_none() {
+        tracing::warn!(
+            thumbnail_present = video["thumbnail"].is_string(),
+            candidates = video["thumbnails"].as_array().map_or(0, Vec::len),
+            "No permitted thumbnail available"
+        );
+    }
     let mut qualities = video["formats"]
         .as_array()
         .into_iter()
@@ -412,6 +472,7 @@ pub async fn youtube_info_handler(
     qualities.dedup();
     qualities.retain(|quality| (144..=2160).contains(quality));
 
+    info!(url = %url, title = %title, duration_seconds = ?video["duration"].as_f64(), qualities = ?qualities, has_thumbnail = thumbnail.is_some(), "Video metadata ready");
     let info = YoutubeInfo {
         title,
         thumbnail,
@@ -425,20 +486,26 @@ pub async fn youtube_info_handler(
     Ok(Json(info))
 }
 
+#[tracing::instrument(skip_all, fields(operation = "mp4", request_id = %uuid::Uuid::new_v4()))]
 pub async fn youtube_download_handler(
     axum::Extension(crate::rate_limit::ClientIp(uploader_ip)): axum::Extension<
         crate::rate_limit::ClientIp,
     >,
     Json(request): Json<YoutubeDownloadRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
-    info!("Media MP4 download requested");
+    info!(quality = request.quality, "Media MP4 download requested");
     if media_video_url(&request.url).is_none() {
+        tracing::warn!("Media request rejected: unsupported or malformed video URL");
         return Err(bad_request(
             "Provide a valid YouTube, Instagram or TikTok video link.",
         ));
     }
 
     if !(144..=2160).contains(&request.quality) {
+        tracing::warn!(
+            quality = request.quality,
+            "MP4 request rejected: invalid quality"
+        );
         return Err(bad_request("Choose a valid video quality."));
     }
 
@@ -454,7 +521,7 @@ pub async fn youtube_download_handler(
     )
     .await
     .map_err(|error| {
-        tracing::error!(%error, "YouTube download failed");
+        tracing::error!(%error, "Media MP4 download failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "The video download failed.".into(),
@@ -474,11 +541,12 @@ pub async fn download_youtube_mp4(
 
     let filename = format!("{}.mp4", uuid::Uuid::new_v4());
     let output_path = output_dir.join(&filename);
+    info!(%url, %filename, quality, "Preparing MP4 download");
     let quality_selector = format!(
         "bestvideo[ext=mp4][height<={quality}]+bestaudio[ext=m4a]/best[ext=mp4][height<={quality}]"
     );
 
-    let output = crate::process::run(
+    let output = run_logged(
         download_options(&mut Command::new("yt-dlp"))
             .arg("-f")
             .arg(&quality_selector)
@@ -508,7 +576,9 @@ pub async fn download_youtube_mp4(
     check_download(&output_path)
         .await
         .map_err(|(_, message)| message)?;
-    Ok(crate::storage::publish_youtube(work, filename, uploader_ip).await?)
+    let download_url = crate::storage::publish_youtube(work, filename, uploader_ip).await?;
+    info!(%download_url, "MP4 download ready");
+    Ok(download_url)
 }
 
 pub async fn download_file_handler(
@@ -591,19 +661,28 @@ pub struct YoutubeAudioRequest {
     pub quality: u32,
 }
 
+#[tracing::instrument(skip_all, fields(operation = "mp3", request_id = %uuid::Uuid::new_v4()))]
 pub async fn youtube_mp3_handler(
     axum::Extension(crate::rate_limit::ClientIp(uploader_ip)): axum::Extension<
         crate::rate_limit::ClientIp,
     >,
     Json(request): Json<YoutubeAudioRequest>,
 ) -> Result<Json<YoutubeDownload>, (StatusCode, String)> {
-    info!("Media MP3 download requested");
+    info!(
+        bitrate_kbps = request.quality,
+        "Media MP3 download requested"
+    );
     if media_video_url(&request.url).is_none() {
+        tracing::warn!("Media request rejected: unsupported or malformed video URL");
         return Err(bad_request(
             "Provide a valid YouTube, Instagram or TikTok video link.",
         ));
     }
     if !matches!(request.quality, 128 | 192 | 256 | 320) {
+        tracing::warn!(
+            bitrate_kbps = request.quality,
+            "MP3 request rejected: invalid bitrate"
+        );
         return Err(bad_request("Choose 128, 192, 256 or 320 kbps."));
     }
     let _slot = crate::resources::acquire()?;
@@ -613,7 +692,8 @@ pub async fn youtube_mp3_handler(
     let directory = work.path();
     let filename = format!("{}.mp3", uuid::Uuid::new_v4());
     let path = directory.join(&filename);
-    let output = crate::process::run(
+    info!(url = %media_video_url(&request.url).unwrap(), %filename, bitrate_kbps = request.quality, "Preparing MP3 download");
+    let output = run_logged(
         download_options(&mut Command::new("yt-dlp"))
             .args([
                 "-f",
@@ -655,6 +735,10 @@ pub async fn youtube_mp3_handler(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Could not store the audio file.".into(),
                 )
+            })
+            .map(|download_url| {
+                info!(%download_url, "MP3 download ready");
+                download_url
             })?,
     }))
 }
