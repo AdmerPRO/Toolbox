@@ -68,6 +68,7 @@ def package(source, binary, target, tag, destination):
         executable.chmod(0o755)
         shutil.copytree(source / "frontend", bundle / "frontend")
         shutil.copytree(source / "deployment", bundle / "deployment")
+        (bundle / "deployment" / "media-worker.py").chmod(0o755)
         for filename in ["README.md", "LICENSE", ".envexample"]:
             shutil.copy2(source / filename, bundle / filename)
         version = tomllib.loads((source / "Cargo.toml").read_text())["package"]["version"]

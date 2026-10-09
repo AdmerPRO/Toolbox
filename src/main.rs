@@ -141,7 +141,9 @@ async fn main() -> Result<()> {
             get(download_youtube_mp4::download_file_handler),
         )
         .fallback_service(ServeDir::new("frontend"))
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+            tracing::info_span!("http_request", method = %request.method(), route = request.extensions().get::<axum::extract::MatchedPath>().map_or("unmatched", |path| path.as_str()))
+        }));
 
     for (page, destination) in [
         ("root", "/"),

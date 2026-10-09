@@ -60,7 +60,7 @@ async fn run_logged(
                 elapsed_ms = started.elapsed().as_millis(), stdout_bytes = output.stdout.len(),
                 stderr_bytes = output.stderr.len(), "Media process finished");
             if !output.stderr.is_empty() {
-                let details: String = String::from_utf8_lossy(&output.stderr)
+                let details: String = crate::process::redact_diagnostics(&output.stderr)
                     .chars()
                     .take(4000)
                     .collect();
@@ -107,7 +107,7 @@ fn storage_error(error: impl std::fmt::Display) -> (StatusCode, String) {
 
 async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, String)> {
     let size = fs::metadata(path).await.map_err(storage_error)?.len();
-    info!(file = %path.display(), bytes = size, "Checking downloaded media");
+    info!(bytes = size, "Checking downloaded media");
     if size == 0 || size > MAX_YOUTUBE_BYTES {
         tracing::warn!(
             bytes = size,
@@ -139,10 +139,10 @@ async fn check_download(path: &std::path::Path) -> Result<(), (StatusCode, Strin
         .ok()
         .and_then(|data| data["format"]["duration"].as_str()?.parse::<f64>().ok());
     if !output.status.success() || !duration.is_some_and(valid_duration) {
-        tracing::warn!(file = %path.display(), duration_seconds = ?duration, "Downloaded media rejected: invalid duration");
+        tracing::warn!( duration_seconds = ?duration, "Downloaded media rejected: invalid duration");
         return Err(bad_request("Choose a recorded video up to 2 hours."));
     }
-    info!(file = %path.display(), bytes = size, duration_seconds = ?duration, "Downloaded media validated");
+    info!( bytes = size, duration_seconds = ?duration, "Downloaded media validated");
     Ok(())
 }
 
@@ -552,7 +552,7 @@ pub async fn download_youtube_mp4(
 
     let filename = format!("{}.mp4", uuid::Uuid::new_v4());
     let output_path = output_dir.join(&filename);
-    info!(%url, %filename, quality, "Preparing MP4 download");
+    info!(%url, quality, "Preparing MP4 download");
     let quality_selector = format!(
         "bestvideo[ext=mp4][height<={quality}]+bestaudio[ext=m4a]/best[ext=mp4][height<={quality}]"
     );
@@ -576,7 +576,7 @@ pub async fn download_youtube_mp4(
     .await?;
 
     if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr);
+        let error = crate::process::redact_diagnostics(&output.stderr);
 
         return Err(format!("yt-dlp error:\n{}", error).into());
     }
@@ -588,7 +588,7 @@ pub async fn download_youtube_mp4(
         .await
         .map_err(|(_, message)| message)?;
     let download_url = crate::storage::publish_youtube(work, filename, uploader_ip).await?;
-    info!(%download_url, "MP4 download ready");
+    info!("MP4 download ready");
     Ok(download_url)
 }
 
@@ -610,9 +610,8 @@ pub async fn download_file_handler(
     let path = PathBuf::from(directory).join(&filename);
 
     info!(
-        endpoint = "/api/youtube/file",
-        filename = %filename,
-        "File id: {id} download requested"
+        endpoint = "/api/youtube/file/{filename}",
+        "Stored media download requested"
     );
 
     let file = fs::File::open(&path)
@@ -714,7 +713,7 @@ pub async fn youtube_mp3_handler(
     let directory = work.path();
     let filename = format!("{}.mp3", uuid::Uuid::new_v4());
     let path = directory.join(&filename);
-    info!(url = %media_video_url(&request.url).unwrap(), %filename, bitrate_kbps = request.quality, "Preparing MP3 download");
+    info!(url = %media_video_url(&request.url).unwrap(), bitrate_kbps = request.quality, "Preparing MP3 download");
     let output = run_logged(
         download_options(&mut Command::new("yt-dlp"))
             .args([
@@ -743,7 +742,7 @@ pub async fn youtube_mp3_handler(
         )
     })?;
     if !output.status.success() || !fs::try_exists(&path).await.unwrap_or(false) {
-        tracing::error!(stderr = %String::from_utf8_lossy(&output.stderr), "Audio download failed");
+        tracing::error!(stderr = %crate::process::redact_diagnostics(&output.stderr), "Audio download failed");
         return Err((StatusCode::INTERNAL_SERVER_ERROR,
             "Audio download failed. Check that yt-dlp and FFmpeg are installed and the video is available.".into()));
     }
@@ -758,7 +757,7 @@ pub async fn youtube_mp3_handler(
             )
         })?;
     crate::result_cache::store_async(cache_key, download_url.clone()).await;
-    info!(%download_url, "MP3 download ready");
+    info!("MP3 download ready");
     Ok(Json(YoutubeDownload { download_url }))
 }
 

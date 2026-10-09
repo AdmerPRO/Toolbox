@@ -15,7 +15,9 @@ After extracting the release into `/opt/toolbox`, run on the deployment host:
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin toolbox
 sudo install -d -o toolbox -g toolbox -m 0700 /opt/toolbox/storage /opt/toolbox/storage/tmp
 sudo install -m 0644 /opt/toolbox/deployment/toolbox.service /etc/systemd/system/toolbox.service
+sudo install -m 0644 /opt/toolbox/deployment/toolbox-egress.service /etc/systemd/system/toolbox-egress.service
 sudo systemctl daemon-reload
+# First complete the firewall and nginx setup below.
 sudo systemctl enable --now toolbox
 sudo systemctl status toolbox
 sudo journalctl -u toolbox --since today
@@ -27,9 +29,17 @@ frontend, and configuration root-owned. The supplied service permits writes
 only to storage, its state directory, and private temporary files. It caps
 memory, CPU, tasks and file descriptors and kills the entire service process
 group on shutdown. Adjust MemoryMax/CPUQuota to the host after monitoring real
-conversions. This isolates the service account and filesystem, but is not a
-per-parser network sandbox: yt-dlp needs outbound Internet access. Uploaded
-MP4 handling constrains ffprobe/FFmpeg to local file/pipe protocols.
+conversions. Production media commands also run through the fail-closed
+`media-worker.py` bubblewrap wrapper: they see system runtimes and their single
+staging job, not the audit database, .env, other jobs or host sockets. Local
+FFmpeg/ffprobe have no network namespace access. yt-dlp inherits the service
+UID's nftables egress policy, including all redirects and resolved addresses.
+Per-process address space (1 GiB), CPU time (600 seconds), output file size
+(500 MiB), descriptors (256) and core dumps (disabled) are constrained.
+The service cgroup bounds the entire worker tree. Linux user namespaces and
+bubblewrap must be supported; failure prevents processing, never falls back.
+Install tools in /usr or /usr/local; runtime files outside these paths are
+intentionally unavailable inside the sandbox.
 
 Copy `.envexample` to `.env` and review storage thresholds. The application
 reads `.env` from its working directory. Environment values in the service
@@ -39,7 +49,7 @@ other processes filling the disk, place storage on a filesystem with a quota.
 
 ## Cloudflare Tunnel and edge rules
 
-Point cloudflared at `http://127.0.0.1:8080`. Do not forward the application
+Point cloudflared at `http://127.0.0.1:8080` (nginx), with Toolbox on 8081. Do not forward the application
 port from the router. The service trusts only loopback proxy addresses, so
 local processes must also be trusted. Configure cloudflared/Cloudflare to
 provide the real visitor CF-Connecting-IP, and verify that distinct visitors
@@ -117,3 +127,83 @@ hostname supports HTTPS and `SITE_URL` uses HTTPS. The application default 0
 omits the header for local HTTP development.
 The application adds neither includeSubDomains nor preload. Align application
 and Cloudflare header policies; client cookies/forwarded headers do not enable HSTS.
+
+
+## Required firewall and proxy installation
+
+Install `bubblewrap`, `nftables`, `nginx` and Python 3.9+ before enabling the
+service. The wrapper must be root-owned and executable, never writable by toolbox:
+
+```sh
+sudo chown root:root /opt/toolbox/deployment/media-worker.py
+sudo chmod 0755 /opt/toolbox/deployment/media-worker.py
+sudo nft --check --file /opt/toolbox/deployment/toolbox-egress.nft
+sudo systemctl daemon-reload
+sudo systemctl enable --now toolbox-egress
+sudo install -m 0644 /opt/toolbox/deployment/nginx-toolbox.conf /etc/nginx/conf.d/toolbox.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+Include the egress file from the host's persistent nftables configuration.
+Do not flush unrelated firewall tables. Reload rules deliberately when changing
+this table; initial loading creates it. The required root firewall oneshot service installs the table before Toolbox starts.
+Its CAP_NET_ADMIN privilege is separate from the unprivileged media service.
+Existing persistent tables are preserved; explicitly review their contents.
+Verify rules survive reboot. Use a public DNS resolver in `/etc/resolv.conf`:
+loopback stubs and private LAN resolvers are deliberately blocked. A public DNS
+response resolving to a private destination is still rejected by the firewall.
+This policy blocks IPv4/IPv6 private, loopback, link-local, metadata, mapped and
+translation destinations and permits only public HTTP(S) and DNS. If your network
+uses custom globally routable internal/metadata ranges, add them to the deny rules.
+Do not give another untrusted local account the toolbox UID.
+
+The nginx configuration limits per-visitor and global simultaneous requests,
+request rate and idle header/body/keepalive times. The application separately
+limits total upload time. Edge connection floods still require the Cloudflare
+settings above. Only cloudflared may reach nginx's loopback listener; public
+listeners are not included. Do not expose either 8080 or 8081 through a router.
+
+## Result links, logs and backups
+
+A result URL is a bearer secret: anyone with the URL can download the result.
+Global conversion cache reuse intentionally shares an existing result for equal
+inputs. This is not owner authentication. The app logs route templates rather
+than download URLs and redacts UUID filenames and external URLs from tool errors.
+The supplied nginx configuration disables access logging. Restrict journal and
+nginx log access to administrators; upstream Tunnel/edge logs also need this policy.
+Do not put result links into analytics, public issue reports or screenshots.
+
+Encrypt off-host backups and restrict keys to backup administrators. Use SQLite's
+backup API or stop the service before copying the database, preserving consistency.
+Expire backups containing media and IP records within the published retention
+window, including snapshots and replicas. Document restore procedures: restored
+records must be reconciled against retained files before serving traffic. No repo
+change can erase existing external backups.
+
+## Host acceptance checks before production
+
+1. Run `cargo audit --deny warnings` with current RustSec data and review installed
+   `ffmpeg`, `ffprobe`, yt-dlp, JS runtime and distro security updates. CI now runs
+   the Cargo audit weekly and for dependency changes; it does not scan OS binaries.
+2. Verify `systemctl show toolbox -p User -p MemoryMax -p CPUQuotaPerSecUSec -p TasksMax`
+   and root ownership of executable, wrapper and configuration. Confirm user
+   namespaces work and valid MP4/MP3 jobs succeed under the production wrapper.
+3. Under `sudo -u toolbox`, verify HTTP connections to 127.0.0.1, RFC1918,
+   169.254.169.254, ::1, fe80:: and fc00:: fail; inspect nft counters. Repeat via
+   HTTP redirects and a DNS name resolving to a denied address. Confirm public
+   downloads work. Run a second job attempting to read another staging directory
+   and the audit database; both must be inaccessible inside the wrapper.
+4. Configure storage on a dedicated filesystem or a project/user quota. Set the
+   hard quota to the storage budget plus a documented margin for SQLite/WAL.
+   Verify quota enforcement using a disposable file, never production media.
+   Application polling is not a replacement for this kernel-enforced quota.
+5. Verify public HTTPS/HSTS, direct port closure, distinct visitor IP attribution,
+   slow upload timeout and 429 responses. Run a bounded load test on staging,
+   monitoring memory, CPU, descriptors, proxy connections and free disk.
+6. Verify journal/storage ACLs, encrypted backup retention and restoration.
+
+These checks need the real Linux host and Cloudflare account. Passing Windows
+unit/smoke tests does not certify firewall, sandbox, TLS, quota or edge deployment.
+
+Sandbox option reference: [bubblewrap manual](https://manpages.debian.org/testing/bubblewrap/bwrap.1.en.html).

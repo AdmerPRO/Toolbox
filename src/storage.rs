@@ -256,7 +256,7 @@ pub async fn download_handler(
         return Err(StatusCode::BAD_REQUEST);
     }
     let id = filename.rsplit_once('.').unwrap().0;
-    tracing::info!("File id: {id} download requested");
+    tracing::info!("Stored media download requested");
     let path = Path::new("storage/active")
         .join(date)
         .join(id)

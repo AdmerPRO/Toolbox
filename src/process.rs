@@ -6,6 +6,42 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, process::Command};
 
+/// Output from external tools may include capability filenames and signed CDN URLs.
+pub fn redact_diagnostics(bytes: &[u8]) -> String {
+    static SECRETS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)https?://[^\s]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        )
+        .unwrap()
+    });
+    SECRETS
+        .replace_all(&String::from_utf8_lossy(bytes), "[redacted]")
+        .into_owned()
+}
+
+fn sandbox_command(command: &Command, directory: Option<&Path>) -> io::Result<Option<Command>> {
+    let Some(wrapper) = std::env::var_os("MEDIA_PROCESS_WRAPPER") else {
+        return Ok(None);
+    };
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (wrapper, command, directory);
+        return Err(io::Error::other("Media sandbox requires Linux"));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if !Path::new(&wrapper).is_absolute() {
+            return Err(io::Error::other("Media wrapper must be an absolute path"));
+        }
+        let mut sandbox = Command::new(wrapper);
+        sandbox.arg(directory.map_or_else(|| "-".into(), |path| path.as_os_str().to_owned()));
+        sandbox
+            .arg(command.as_std().get_program())
+            .args(command.as_std().get_args());
+        Ok(Some(sandbox))
+    }
+}
+
 // A timeout or disconnected client must also stop FFmpeg spawned by yt-dlp.
 #[cfg(unix)]
 struct ProcessTree(u32);
@@ -30,7 +66,11 @@ impl ProcessTree {
                 return Err(io::Error::last_os_error());
             }
             let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                | JOB_OBJECT_LIMIT_JOB_MEMORY
+                | JOB_OBJECT_LIMIT_JOB_TIME;
+            limits.JobMemoryLimit = 1024 * 1024 * 1024;
+            limits.BasicLimitInformation.PerJobUserTimeLimit = 600 * 10_000_000;
             let process = child
                 .raw_handle()
                 .ok_or_else(|| io::Error::other("Missing process handle"))?;
@@ -74,6 +114,8 @@ pub async fn run(
     directory: Option<&Path>,
     max_bytes: u64,
 ) -> io::Result<Output> {
+    let mut sandbox = sandbox_command(command, directory)?;
+    let command = sandbox.as_mut().unwrap_or(command);
     command
         .kill_on_drop(true)
         .stdin(Stdio::null())
@@ -142,6 +184,14 @@ async fn check(path: &Path, max_bytes: u64) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostics_do_not_expose_download_capabilities() {
+        let text = redact_diagnostics(b"ERROR: https://cdn.example/media?token=secret output storage/12345678-1234-1234-1234-123456789abc.mp4");
+        assert!(!text.contains("secret"));
+        assert!(!text.contains("12345678"));
+        assert!(text.contains("ERROR:"));
+    }
 
     #[tokio::test]
     async fn rejects_excessive_process_output() {

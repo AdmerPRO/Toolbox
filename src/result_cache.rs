@@ -135,7 +135,7 @@ pub fn store(key: &str, url: &str) {
     if let Err(error) = crate::audit::database().and_then(|db| db.cache_result(key, url)) {
         tracing::warn!(%error, "Could not store result cache entry");
     } else {
-        tracing::info!(cache_key = key, download_url = url, "Result cached");
+        tracing::info!(cache_key = key, "Result cached");
     }
 }
 

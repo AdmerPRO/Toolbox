@@ -1,0 +1,19 @@
+[Unit]
+Description=Toolbox private-network egress protection
+Before=toolbox.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Preserve an already installed persistent table, otherwise install our rules.
+ExecStart=/bin/sh -c '/usr/sbin/nft list table inet toolbox_egress >/dev/null 2>&1 || /usr/sbin/nft --file /opt/toolbox/deployment/toolbox-egress.nft'
+User=root
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

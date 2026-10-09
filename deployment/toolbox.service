@@ -1,6 +1,7 @@
 [Unit]
 Description=Tool Box media service
-After=network-online.target
+After=network-online.target toolbox-egress.service
+Requires=toolbox-egress.service
 Wants=network-online.target
 
 [Service]
@@ -10,7 +11,8 @@ Group=toolbox
 WorkingDirectory=/opt/toolbox
 ExecStart=/opt/toolbox/admersite
 Environment=ADDRESS=127.0.0.1
-Environment=PORT=8080
+Environment=PORT=8081
+Environment=MEDIA_PROCESS_WRAPPER=/opt/toolbox/deployment/media-worker.py
 Environment=HSTS_MAX_AGE_SECONDS=31536000
 Environment=TRUSTED_PROXY_IPS=127.0.0.1,::1
 Environment=HOME=/var/lib/toolbox
