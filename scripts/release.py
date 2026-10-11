@@ -145,7 +145,7 @@ def verify(archive):
                         time.sleep(0.1)
                 else:
                     raise RuntimeError("Packaged server did not start")
-                for page in ["/", "/images/", "/resize/", "/mp4tomp3/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/privacy/", "/root/style.css", "/assets/good_cat_image.png", "/sitemap.xml", "/robots.txt"]:
+                for page in ["/", "/images/", "/resize/", "/mp4tomp3/", "/mute/", "/mp4togif/", "/youtubemp4/", "/youtubemp3/", "/privacy/", "/root/style.css", "/assets/good_cat_image.png", "/sitemap.xml", "/robots.txt"]:
                     with urllib.request.urlopen(base + page, timeout=5) as response:
                         if not response.read():
                             raise RuntimeError(f"Empty packaged page: {page}")

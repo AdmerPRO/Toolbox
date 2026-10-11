@@ -68,6 +68,8 @@ async fn main() -> Result<()> {
             "/resize/",
             get(|| async { root::page_handler("resize").await }),
         )
+        .route("/mp4togif/", get(|| async { root::page_handler("mp4togif").await }))
+        .route("/api/convert/gif", post(api::media::gif_handler).layer(DefaultBodyLimit::max(201 * 1024 * 1024)))
         .route("/mute/", get(|| async { root::page_handler("mute").await }))
         .route(
             "/api/convert/resize",
@@ -152,6 +154,7 @@ async fn main() -> Result<()> {
         ("resize", "/resize/"),
         ("mp4tomp3", "/mp4tomp3/"),
         ("mute", "/mute/"),
+        ("mp4togif", "/mp4togif/"),
         ("youtubemp4", "/youtubemp4/"),
         ("youtubemp3", "/youtubemp3/"),
         ("privacy", "/privacy/"),

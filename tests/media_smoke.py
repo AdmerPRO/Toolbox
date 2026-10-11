@@ -91,7 +91,7 @@ def main():
                         assert error.code == expected, (error.code, error.read())
                         return None
 
-                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/qr/", "/privacy/"]
+                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/qr/", "/privacy/", "/mp4togif/"]
                 descriptions = []
                 for page in pages:
                     html, page_headers = get(page)
@@ -228,6 +228,17 @@ def main():
                             assert json.load(response)["download_url"] == expected_url
                 with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
                     assert database.execute("SELECT COUNT(*) FROM files").fetchone()[0] == before
+                gif_url = upload("/api/convert/gif", "sample.mp4", video.read_bytes())
+                assert upload("/api/convert/gif", "renamed.mp4", video.read_bytes()) == gif_url
+                gif_content, gif_headers = get(gif_url)
+                assert gif_headers["Content-Type"] == "image/gif"
+                assert gif_content.startswith((b"GIF87a", b"GIF89a"))
+                gif_file = root / "animation.gif"
+                gif_file.write_bytes(gif_content)
+                gif_probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-count_frames", "-show_entries", "stream=width,height,nb_read_frames:format=duration", "-of", "json", str(gif_file)]))
+                assert int(gif_probe["streams"][0]["nb_read_frames"]) > 1
+                assert max(gif_probe["streams"][0]["width"], gif_probe["streams"][0]["height"]) <= 480
+                upload("/api/convert/gif", "fake.mp4", b"invalid video", expected=400)
                 date, filename = url.rsplit("/", 2)[1:]
                 job = root / "storage" / "active" / date / filename.rsplit(".", 1)[0]
                 assert (job / "source.mp4").read_bytes() == video.read_bytes()

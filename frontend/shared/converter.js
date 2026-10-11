@@ -3,7 +3,7 @@ const file = document.querySelector('#file');
 const status = document.querySelector('#status');
 const save = document.querySelector('#download-link');
 const tool = document.body.dataset.tool;
-const audio = ['audio', 'mute'].includes(tool);
+const audio = ['audio', 'mute', 'gif'].includes(tool);
 let busy = false;
 
 function message(text, error = false, loading = false) {
@@ -48,7 +48,7 @@ form.addEventListener('submit', async event => {
     form.setAttribute('aria-busy', 'true');
     const controls = [...form.querySelectorAll('input, select, button')];
     controls.forEach(control => { control.disabled = true; });
-    message(tool === 'mute' ? 'Uploading and removing audio...' : audio ? 'Uploading and extracting audio...' : 'Uploading and processing your image...', false, true);
+    message(tool === 'gif' ? 'Uploading and creating your GIF...' : tool === 'mute' ? 'Uploading and removing audio...' : audio ? 'Uploading and extracting audio...' : 'Uploading and processing your image...', false, true);
     try {
         const response = await fetch(endpoint, { method: 'POST', body: data });
         if (!response.ok) throw new Error(await response.text() || 'Conversion failed. Please try again.');

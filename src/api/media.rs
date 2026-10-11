@@ -317,7 +317,7 @@ pub async fn audio_handler(
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
     tracing::info!("MP4 to MP3 conversion requested");
-    video_job(multipart, false, uploader_ip).await
+    video_job(multipart, false, false, uploader_ip).await
 }
 
 pub async fn mute_handler(
@@ -325,12 +325,21 @@ pub async fn mute_handler(
     multipart: Multipart,
 ) -> Result<Json<YoutubeDownload>, Error> {
     tracing::info!("Video mute requested");
-    video_job(multipart, true, uploader_ip).await
+    video_job(multipart, true, false, uploader_ip).await
+}
+
+pub async fn gif_handler(
+    Extension(crate::rate_limit::ClientIp(uploader_ip)): Extension<crate::rate_limit::ClientIp>,
+    multipart: Multipart,
+) -> Result<Json<YoutubeDownload>, Error> {
+    tracing::info!("MP4 to GIF conversion requested");
+    video_job(multipart, false, true, uploader_ip).await
 }
 
 async fn video_job(
     multipart: Multipart,
     mute: bool,
+    gif: bool,
     uploader_ip: std::net::IpAddr,
 ) -> Result<Json<YoutubeDownload>, Error> {
     let _permit = crate::resources::acquire()?;
@@ -347,8 +356,17 @@ async fn video_job(
         .await
         .map_err(internal)?
         .map_err(internal)?;
-    let cache_key =
-        crate::result_cache::key(if mute { "mute" } else { "extract-audio" }, &hash, "v1");
+    let cache_key = crate::result_cache::key(
+        if gif {
+            "mp4-to-gif"
+        } else if mute {
+            "mute"
+        } else {
+            "extract-audio"
+        },
+        &hash,
+        "v1",
+    );
     let _cache_guard = crate::result_cache::lock(&cache_key).await;
     if let Some(download_url) = crate::result_cache::lookup(&cache_key, uploader_ip)
         .await
@@ -357,11 +375,17 @@ async fn video_job(
         return Ok(Json(YoutubeDownload { download_url }));
     }
 
-    probe_video(&work.path().join("source.mp4"), mute).await?;
+    probe_video(&work.path().join("source.mp4"), mute || gif).await?;
     let filename = format!(
         "{}.{}",
         uuid::Uuid::new_v4(),
-        if mute { "mp4" } else { "mp3" }
+        if gif {
+            "gif"
+        } else if mute {
+            "mp4"
+        } else {
+            "mp3"
+        }
     );
     let mut command = tokio::process::Command::new("ffmpeg");
     command
@@ -378,7 +402,14 @@ async fn video_job(
             "-i",
         ])
         .arg(work.path().join("source.mp4"));
-    if mute {
+    if gif {
+        command.args([
+            "-map", "[gif]", "-an", "-filter_complex_threads", "1",
+            "-filter_complex",
+            "[0:v:0]fps=10,scale=w='min(480,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer[gif]",
+            "-threads", "1", "-loop", "0", "-y",
+        ]);
+    } else if mute {
         command.args([
             "-map",
             "0:v:0",
@@ -406,7 +437,12 @@ async fn video_job(
         ]);
     }
     command
-        .args(["-t", "7200", "-fs", "524288000"])
+        .args([
+            "-t",
+            if gif { "30" } else { "7200" },
+            "-fs",
+            if gif { "52428800" } else { "524288000" },
+        ])
         .arg(work.path().join(&filename));
     let output = crate::process::run(&mut command, 600, Some(work.path()), 768 * 1024 * 1024)
         .await
@@ -418,7 +454,9 @@ async fn video_job(
             )
         })?;
     if !output.status.success() {
-        return Err(bad(if mute {
+        return Err(bad(if gif {
+            "Could not convert this MP4 to GIF. Choose a valid MP4 containing a video track."
+        } else if mute {
             "Could not mute this video. Choose a valid MP4 containing a video track."
         } else {
             "Could not extract audio. Choose a valid MP4 containing an audio track."
