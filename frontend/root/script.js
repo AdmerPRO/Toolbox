@@ -2,6 +2,10 @@ const welcome = document.getElementById("overlay");
 const closeButton = document.getElementById("closeBtn");
 const welcomeButton = document.getElementById("welcome-button");
 const cookieName = "popup_seen_v2";
+const toolGuide = document.getElementById("tool-guide");
+document.querySelector('a[href="#tool-guide"]').addEventListener("click", () => {
+    toolGuide.open = true;
+});
 
 function openWelcome() {
     if (!welcome.open) welcome.showModal();

@@ -1,10 +1,11 @@
 :root {
-    color-scheme:dark;
+    color-scheme:light;
     font-family:Inter,"Segoe UI",sans-serif;
-    color:#fff5f2;
-    --muted:#cbaead;
-    --line:#ffffff17;
-    --accent:#ff7569;
+    color:#202a35;
+    --muted:#526171;
+    --line:#d6dde5;
+    --border:var(--line);
+    --accent:#225bb5;
 }
 
 * {
@@ -18,9 +19,7 @@
 body {
     margin:0;
     min-height:100vh;
-    background:linear-gradient(-45deg,#170d0d,#271111,#541717,#4b1b1b,#170d0d);
-    background-size:400% 400%;
-    animation:gradientMove 15s ease infinite;
+    background:#f5f7f9;
 }
 
 @keyframes gradientMove {
@@ -158,11 +157,9 @@ h1 span {
 }
 
 .tool-card,.panel {
-    background:linear-gradient(135deg,#ffffff09,#ffffff03);
-    border:1px solid #ffffff1c;
-    border-radius:24px;
-    box-shadow:0 18px 50px #0002;
-    backdrop-filter:blur(16px);
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:10px;
 }
 
 .tool-card {
@@ -172,8 +169,8 @@ h1 span {
 }
 
 .tool-card:hover {
-    transform:translateY(-5px);
-    border-color:#ff756980;
+    background:#f8fafc;
+    border-color:#aab7c5;
 }
 
 .tool-icon {
@@ -615,3 +612,61 @@ button:disabled {
 
 .author-confirmation { display: flex; align-items: flex-start; gap: .65rem; margin: 1rem 0; }
 .author-confirmation input[type="checkbox"] { width: 1.1rem; height: 1.1rem; flex: 0 0 auto; margin: .15rem 0 0; }
+
+/* A compact, neutral interface shared by the directory and individual tools. */
+body { line-height:1.55; }
+h1,h2,h3,.brand { font-weight:500; }
+.site-header { padding:16px 0; gap:12px; }
+.brand { font-size:20px; letter-spacing:-.4px; }
+.main-nav { gap:2px; }
+.main-nav a { display:inline-flex; align-items:center; min-height:44px; padding:10px 12px; font-size:15px; }
+nav a:hover,.main-nav a[aria-current=page] { background:#e7edf4; color:#202a35; }
+.hero { padding:32px 0 24px; max-width:760px; }
+h1 { font-size:clamp(30px,4vw,44px); line-height:1.2; letter-spacing:-1px; margin:0 0 12px; }
+h1 span { color:inherit; }
+.lead { font-size:17px; line-height:1.6; max-width:650px; }
+.service-note { color:var(--muted); font-size:14px; margin:12px 0 0; }
+.tools { gap:12px; margin:0 0 20px; }
+.tool-card { display:flex; flex-direction:column; padding:20px; transition:background .15s,border-color .15s; }
+.tool-icon,.tag { display:none; }
+.tool-card h2 { font-size:20px; line-height:1.35; letter-spacing:-.3px; margin:0 0 8px; }
+.tool-card p { font-size:15px; line-height:1.55; max-width:none; margin:0 0 14px; }
+.card-link { font-size:16px; font-weight:400; color:var(--accent); margin-top:auto; min-height:44px; align-items:center; text-decoration:underline; text-underline-offset:3px; }
+footer { align-items:center; padding:16px 0; font-size:14px; gap:12px; flex-wrap:wrap; }
+footer a,.footer-button,.back-link,.popup-github { display:inline-flex; align-items:center; min-height:44px; font-size:15px; }
+footer a:hover,.footer-button:hover { color:var(--accent); }
+.downloader { margin:28px auto 36px; }
+.downloader h1 { font-size:clamp(28px,4vw,38px); margin:16px 0 12px; }
+.panel { padding:24px; margin-top:20px; }
+.mode-tabs { padding-bottom:12px; margin-bottom:20px; }
+.mode-tabs a { display:inline-flex; align-items:center; min-height:44px; font-size:16px; }
+.mode-tabs a[aria-current=page] { background:#e7edf4; color:var(--accent); }
+label { color:#344252; font-size:15px; font-weight:400; }
+input,select,textarea,#qr-text { background:#fff; color:#202a35; border:1px solid #aab7c5; border-radius:6px; min-height:44px; }
+input::placeholder { color:#647384; font-size:15px; }
+button,.download-link { background:var(--accent); color:#fff; font-weight:500; border-radius:6px; min-height:44px; }
+button:hover,.download-link:hover { background:#19498f; }
+.footer-button,.footer-button:hover { background:transparent; font-weight:400; }
+.hint,.steps { font-size:14px; }
+.hint a,.seo-content a { text-underline-offset:3px; }
+.steps b { font-weight:500; }
+.status.error { color:#ad2733; }
+.status.busy:before { border-color:var(--line); border-top-color:var(--accent); }
+.seo-content { margin:24px 0; padding-top:16px; }
+.seo-content summary { cursor:pointer; color:var(--accent); min-height:44px; padding:10px 0; font-size:16px; }
+.seo-content h2 { font-size:20px; margin-top:20px; }
+.seo-content p { max-width:80ch; }
+.welcome-dialog { background:#fff; color:#202a35; border:1px solid var(--line); border-radius:10px; }
+.welcome-dialog::backdrop { background:#202a3580; backdrop-filter:none; }
+.eyebrow { font-weight:400; }
+.popup-content h2 { font-weight:500; }
+@media(max-width:640px) {
+    .site-header { padding:12px 0; }
+    .main-nav { padding:0 0 6px; }
+    .main-nav a { padding:10px 12px; font-size:15px; }
+    .hero { padding:24px 0 20px; }
+    .tools { gap:10px; }
+    .tool-card { padding:16px; }
+    .downloader { margin:24px auto; }
+    .panel { padding:18px; }
+}
