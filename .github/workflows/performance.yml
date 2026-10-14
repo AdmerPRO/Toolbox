@@ -1,0 +1,42 @@
+name: Website performance
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Lighthouse CI
+        run: npm install --global @lhci/cli@0.14.0
+      - name: Build optimized server
+        run: cargo build --locked --release
+      - name: HTTP load test and mobile Lighthouse audits
+        run: python tests/performance.py --binary target/release/admersite --report reports/http-performance.json -- lhci autorun --config=lighthouserc.cjs
+      - name: Save performance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-performance
+          path: |
+            reports/
+            .lighthouseci/
+          if-no-files-found: warn
+          retention-days: 14

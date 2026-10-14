@@ -81,8 +81,8 @@ jobs:
           node --check frontend/shared/converter.js
           node --check frontend/shared/privacy.js
           node --check frontend/qr/script.js
-          node --test tests/privacy.test.cjs
+          node --test tests/*.test.cjs
           node --check frontend/root/script.js
           node --check frontend/youtubemp4/script.js
-      - name: Test release packaging
-        run: python -m unittest discover -s tests -p "test_release*.py"
+      - name: Test release packaging and isolated media worker
+        run: python -m unittest discover -s tests -p "test_*.py"

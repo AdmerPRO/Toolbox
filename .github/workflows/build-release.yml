@@ -23,8 +23,11 @@ jobs:
   checks:
     uses: ./.github/workflows/rust.yml
 
+  performance:
+    uses: ./.github/workflows/performance.yml
+
   build:
-    needs: checks
+    needs: [checks, performance]
     name: Package (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60

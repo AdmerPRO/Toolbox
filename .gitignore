@@ -1,6 +1,8 @@
 # Target directory
 /target
 /dist
+/reports
+/.lighthouseci
 __pycache__/
 
 # .env
