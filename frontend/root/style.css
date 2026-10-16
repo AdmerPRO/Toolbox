@@ -670,3 +670,6 @@ button:hover,.download-link:hover { background:#19498f; }
     .downloader { margin:24px auto; }
     .panel { padding:18px; }
 }
+
+#source-preview, #result-preview, .media-preview { display: block; width: 100%; max-height: 420px; object-fit: contain; margin-top: 1rem; }
+#source-preview[hidden], #result-preview[hidden], .media-preview[hidden] { display: none; }

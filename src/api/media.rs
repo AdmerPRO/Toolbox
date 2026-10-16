@@ -45,7 +45,7 @@ async fn receive(
     multipart: Multipart,
     directory: &Path,
     limit: usize,
-    audio: bool,
+    kind: &str,
 ) -> Result<String, Error> {
     let seconds = std::env::var("UPLOAD_TIMEOUT_SECONDS")
         .ok()
@@ -53,7 +53,7 @@ async fn receive(
         .unwrap_or(300);
     tokio::time::timeout(
         Duration::from_secs(seconds),
-        receive_inner(multipart, directory, limit, audio),
+        receive_inner(multipart, directory, limit, kind),
     )
     .await
     .map_err(|_| {
@@ -68,7 +68,7 @@ async fn receive_inner(
     mut multipart: Multipart,
     directory: &Path,
     limit: usize,
-    audio: bool,
+    kind: &str,
 ) -> Result<String, Error> {
     let mut uploaded = false;
     let mut selection = None;
@@ -78,7 +78,7 @@ async fn receive_inner(
         .map_err(|_| bad("Invalid or oversized upload."))?
     {
         match field.name() {
-            Some("format") if !audio && selection.is_none() => {
+            Some("format") if kind == "image" && selection.is_none() => {
                 let mut bytes = Vec::new();
                 while let Some(chunk) = field
                     .chunk()
@@ -106,7 +106,11 @@ async fn receive_inner(
                             .map(|(_, ext)| ext.to_ascii_lowercase())
                     })
                     .ok_or_else(|| bad("Choose a file with a supported extension."))?;
-                if (audio && extension != "mp4") || (!audio && format(&extension).is_none()) {
+                if !(if kind == "image" {
+                    format(&extension).is_some()
+                } else {
+                    extension == kind
+                }) {
                     return Err(bad("Unsupported input file type."));
                 }
                 let mut file = tokio::fs::File::create(directory.join("input"))
@@ -146,8 +150,8 @@ async fn receive_inner(
     if !uploaded {
         return Err(bad("Choose a file to upload."));
     }
-    if audio {
-        Ok("mp3".into())
+    if kind != "image" {
+        Ok(kind.into())
     } else {
         selection.ok_or_else(|| bad("Choose an output format."))
     }
@@ -264,7 +268,7 @@ async fn image_job(
             "Storage is temporarily unavailable.".into(),
         )
     })?;
-    let extension = receive(multipart, work.path(), IMAGE_LIMIT, false).await?;
+    let extension = receive(multipart, work.path(), IMAGE_LIMIT, "image").await?;
     let input_path = std::fs::read_dir(work.path())
         .map_err(internal)?
         .next()
@@ -336,6 +340,162 @@ pub async fn gif_handler(
     video_job(multipart, false, true, uploader_ip).await
 }
 
+#[derive(serde::Deserialize)]
+pub struct CutOptions {
+    start: f64,
+    end: f64,
+}
+
+fn valid_cut(options: &CutOptions) -> bool {
+    options.start.is_finite()
+        && options.end.is_finite()
+        && options.start >= 0.0
+        && options.end > options.start
+        && options.end <= 7200.0
+}
+
+pub async fn cut_mp4_handler(
+    Query(options): Query<CutOptions>,
+    Extension(crate::rate_limit::ClientIp(ip)): Extension<crate::rate_limit::ClientIp>,
+    multipart: Multipart,
+) -> Result<Json<YoutubeDownload>, Error> {
+    cut_job(multipart, options, false, ip).await
+}
+pub async fn cut_mp3_handler(
+    Query(options): Query<CutOptions>,
+    Extension(crate::rate_limit::ClientIp(ip)): Extension<crate::rate_limit::ClientIp>,
+    multipart: Multipart,
+) -> Result<Json<YoutubeDownload>, Error> {
+    cut_job(multipart, options, true, ip).await
+}
+
+async fn cut_job(
+    multipart: Multipart,
+    options: CutOptions,
+    audio: bool,
+    ip: std::net::IpAddr,
+) -> Result<Json<YoutubeDownload>, Error> {
+    if !valid_cut(&options) {
+        return Err(bad(
+            "Choose a start and end between 0 and 7200 seconds, with end after start.",
+        ));
+    }
+    let _permit = crate::resources::acquire()?;
+    let work = storage::prepare(768 * 1024 * 1024)
+        .await
+        .map_err(internal)?;
+    let extension = if audio { "mp3" } else { "mp4" };
+    receive(multipart, work.path(), VIDEO_LIMIT, extension).await?;
+    let input = work.path().join(format!("source.{extension}"));
+    let mut probe = tokio::process::Command::new("ffprobe");
+    probe
+        .args([
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-f",
+            if audio { "mp3" } else { "mov" },
+            "-show_entries",
+            "format=duration:stream=codec_type",
+            "-of",
+            "json",
+        ])
+        .arg(&input);
+    let output = crate::process::run(&mut probe, 20, None, 0)
+        .await
+        .map_err(internal)?;
+    let data: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|_| bad("Invalid recording."))?;
+    let duration = data["format"]["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let valid_streams = data["streams"].as_array().is_some_and(|streams| {
+        streams.len() <= 10
+            && streams
+                .iter()
+                .any(|s| s["codec_type"] == if audio { "audio" } else { "video" })
+    });
+    if !output.status.success()
+        || !duration.is_finite()
+        || duration <= 0.0
+        || duration > 7200.0
+        || !valid_streams
+        || options.start >= duration
+        || options.end > duration + 0.05
+    {
+        return Err(bad(
+            "Choose a valid recording up to two hours and a fragment within its duration.",
+        ));
+    }
+    let filename = format!("{}.{extension}", uuid::Uuid::new_v4());
+    let mut command = tokio::process::Command::new("ffmpeg");
+    command
+        .kill_on_drop(true)
+        .args([
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            &options.start.to_string(),
+            "-protocol_whitelist",
+            "file,pipe",
+            "-f",
+            if audio { "mp3" } else { "mov" },
+            "-i",
+        ])
+        .arg(&input);
+    if audio {
+        command.args([
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "192k",
+            "-threads",
+            "1",
+        ]);
+    } else {
+        command.args([
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-movflags",
+            "+faststart",
+        ]);
+    }
+    command
+        .args([
+            "-t",
+            &(options.end - options.start).to_string(),
+            "-map_metadata",
+            "-1",
+            "-fs",
+            "524288000",
+            "-y",
+        ])
+        .arg(work.path().join(&filename));
+    let output = crate::process::run(&mut command, 600, Some(work.path()), 768 * 1024 * 1024)
+        .await
+        .map_err(internal)?;
+    if !output.status.success() {
+        return Err(bad(
+            "Could not cut this recording. Choose a valid playable MP4 or MP3.",
+        ));
+    }
+    let download_url = storage::publish(&work, &filename, ip).map_err(internal)?;
+    Ok(Json(YoutubeDownload { download_url }))
+}
+
 async fn video_job(
     multipart: Multipart,
     mute: bool,
@@ -350,7 +510,7 @@ async fn video_job(
             "Storage is temporarily unavailable.".into(),
         )
     })?;
-    receive(multipart, work.path(), VIDEO_LIMIT, true).await?;
+    receive(multipart, work.path(), VIDEO_LIMIT, "mp4").await?;
     let hash_path = work.path().join("source.mp4");
     let hash = tokio::task::spawn_blocking(move || crate::result_cache::file_hash(&hash_path))
         .await
@@ -523,6 +683,24 @@ async fn probe_video(path: &Path, mute: bool) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_cut_ranges() {
+        assert!(valid_cut(&CutOptions {
+            start: 0.0,
+            end: 7200.0
+        }));
+        for (start, end) in [
+            (-1.0, 3.0),
+            (3.0, 3.0),
+            (4.0, 3.0),
+            (0.0, 7201.0),
+            (f64::NAN, 1.0),
+            (0.0, f64::INFINITY),
+        ] {
+            assert!(!valid_cut(&CutOptions { start, end }));
+        }
+    }
 
     #[test]
     fn validates_container_duration_stream_count_and_required_track() {

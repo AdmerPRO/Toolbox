@@ -70,6 +70,10 @@ async fn main() -> Result<()> {
         )
         .route("/mp4togif/", get(|| async { root::page_handler("mp4togif").await }))
         .route("/api/convert/gif", post(api::media::gif_handler).layer(DefaultBodyLimit::max(201 * 1024 * 1024)))
+        .route("/mp4cutter/", get(|| async { root::page_handler("mp4cutter").await }))
+        .route("/mp3cutter/", get(|| async { root::page_handler("mp3cutter").await }))
+        .route("/api/convert/cut-mp4", post(api::media::cut_mp4_handler).layer(DefaultBodyLimit::max(201 * 1024 * 1024)))
+        .route("/api/convert/cut-mp3", post(api::media::cut_mp3_handler).layer(DefaultBodyLimit::max(201 * 1024 * 1024)))
         .route("/mute/", get(|| async { root::page_handler("mute").await }))
         .route(
             "/api/convert/resize",
@@ -154,6 +158,8 @@ async fn main() -> Result<()> {
         ("resize", "/resize/"),
         ("mp4tomp3", "/mp4tomp3/"),
         ("mute", "/mute/"),
+        ("mp4cutter", "/mp4cutter/"),
+        ("mp3cutter", "/mp3cutter/"),
         ("mp4togif", "/mp4togif/"),
         ("youtubemp4", "/youtubemp4/"),
         ("youtubemp3", "/youtubemp3/"),

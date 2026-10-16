@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MP4 to GIF Converter Online | AdmerPRO Tools</title>
+    <title>Gif Maker Online | AdmerPRO Tools</title>
     <link rel="stylesheet" href="/root/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
     <link rel="apple-touch-icon" href="/assets/good_cat_image.png">
-    <meta name="description" content="Convert the first 30 seconds of an MP4 into an animated GIF at 10 fps, up to 480 pixels.">
+    <meta name="description" content="Create a still GIF from a photo or a looping animation from the first 30 seconds of an MP4.">
     <link rel="canonical" href="https://tools.admerpro.com/mp4togif/">
     <link rel="stylesheet" href="/shared/privacy.css">
     <script src="/shared/privacy.js" defer></script>
@@ -25,36 +25,43 @@
                     <a href="/mute/">Mute video</a>
                     <a href="/youtubemp4/">YouTube MP4</a>
                     <a href="/youtubemp3/">YouTube MP3</a>
-                    <a href="/mp4togif/" aria-current="page">MP4 to GIF</a>
-                    <a href="/privacy/">Privacy</a>
+                    <a href="/mp4togif/" aria-current="page">Gif Maker</a>
+                    <a href="/mp4cutter/">MP4 Cutter</a>
+<a href="/mp3cutter/">MP3 Cutter</a>
+<a href="/privacy/">Privacy</a>
                 </nav>
         </header>
         <main class="downloader" itemscope itemtype="https://schema.org/WebApplication">
             <link itemprop="url" href="https://tools.admerpro.com/mp4togif/">
             <meta itemprop="applicationCategory" content="MultimediaApplication">
             <meta itemprop="operatingSystem" content="Any">
-            <meta itemprop="description" content="Convert the first 30 seconds of an MP4 into an animated GIF at 10 fps, up to 480 pixels.">
+            <meta itemprop="description" content="Create a still GIF from a photo or a looping animation from the first 30 seconds of an MP4.">
             <span itemprop="offers" itemscope itemtype="https://schema.org/Offer">
                 <meta itemprop="price" content="0"><meta itemprop="priceCurrency" content="USD">
             </span>
             <a class="back-link" href="/">&#8592; Back to all tools</a>
-            <h1 itemprop="name">Convert MP4 to GIF</h1>
-            <p class="lead">Turn your video into a looping animated GIF.</p>
+            <h1 itemprop="name">Gif Maker</h1>
+            <p class="lead">Create a GIF from a photo or an MP4 video.</p>
             <div class="panel">
                 <form id="convert-form" action="/api/convert/gif" method="post" enctype="multipart/form-data">
-                    <label for="file">Choose an MP4 video</label>
+                    <label for="source-type">Create GIF from</label>
+<select id="source-type"><option value="video">MP4 video</option><option value="image">Photo</option></select>
+<label for="file">Choose a photo or MP4 video</label>
                     <input id="file" name="file" type="file" accept=".mp4,video/mp4" required>
-                    <p class="hint">Up to 200 MiB. Your file must contain a video track. Processing can take up to 10 minutes.</p>
+                    <p class="hint">MP4: up to 200 MiB. Photos: up to 20 MiB and 4096 x 4096 pixels. A single photo produces a still GIF. Processing can take up to 10 minutes.</p>
                     <p class="hint">Your original and GIF files are stored for 7 days, then moved into ZIP archives deleted 30 days after creation. <a href="/privacy/">Read the privacy policy</a> before uploading.</p>
                     <button type="submit">Convert to GIF &#8594;</button>
                 </form>
-                <p id="status" class="status" role="status" aria-live="polite"></p>
+                <video id="source-preview" controls playsinline preload="metadata" hidden></video>
+<img id="image-preview" class="media-preview" alt="Selected photo" hidden>
+<img id="result-image" class="media-preview" alt="Generated GIF" hidden>
+<p id="status" class="status" role="status" aria-live="polite"></p>
                 <a id="download-link" class="download-link" hidden download>Save animated GIF &#8595;</a>
             </div>
             <p class="hint">Upload content you own or have permission to process.</p>
 
             <section class="seo-content" aria-label="About this tool">
-                <h2>Create an animated GIF from an MP4</h2><p>Upload an MP4 containing a video track. The first 30 seconds are converted at 10 frames per second, with both dimensions limited to 480 pixels while preserving the aspect ratio. Shorter videos are converted in full. GIFs loop continuously and contain no audio.</p>
+                <h2>Create a GIF from a photo or MP4</h2><p>Select Photo to convert a picture into a still GIF, or MP4 video to create a looping animation.</p><p>Upload an MP4 containing a video track. The first 30 seconds are converted at 10 frames per second, with both dimensions limited to 480 pixels while preserving the aspect ratio. Shorter videos are converted in full. GIFs loop continuously and contain no audio.</p>
                 <h2>How to use this tool</h2><ol><li>Choose an MP4 video and accept the privacy policy.</li><li>Click Convert to GIF and wait for processing.</li><li>Save the animated GIF using the download link.</li></ol>
                 <h2>Limits</h2><p>Uploads may be up to 200 MiB and two hours long. Only the first 30 seconds appear in the GIF. Output files are limited to 50 MiB, and processing can take up to 10 minutes.</p>
                 <h2>Download availability and privacy</h2><p>Result links are available for 7 days. Files then move into ZIP archives deleted 30 days after creation. File-related IP addresses and download times are recorded for abuse investigation. <a href="/privacy/">Read the privacy policy</a> before submitting files or links.</p>

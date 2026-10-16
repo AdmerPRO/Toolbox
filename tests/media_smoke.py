@@ -91,7 +91,7 @@ def main():
                         assert error.code == expected, (error.code, error.read())
                         return None
 
-                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/qr/", "/privacy/", "/mp4togif/"]
+                pages = ["/", "/images/", "/mp4tomp3/", "/resize/", "/mute/", "/youtubemp4/", "/youtubemp3/", "/qr/", "/privacy/", "/mp4togif/", "/mp4cutter/", "/mp3cutter/"]
                 descriptions = []
                 for page in pages:
                     html, page_headers = get(page)
@@ -228,6 +228,22 @@ def main():
                             assert json.load(response)["download_url"] == expected_url
                 with closing(sqlite3.connect(root / "storage" / "audit.sqlite3")) as database:
                     assert database.execute("SELECT COUNT(*) FROM files").fetchone()[0] == before
+                # Cut real audio/video and verify tracks and output durations.
+                for extension, source in [("mp4", video.read_bytes()), ("mp3", audio.read_bytes())]:
+                    cut_url = upload(f"/api/convert/cut-{extension}?start=0.2&end=0.7", f"sample.{extension}", source)
+                    cut_content, cut_headers = get(cut_url)
+                    assert cut_headers["Content-Type"] == ("video/mp4" if extension == "mp4" else "audio/mpeg")
+                    cut_file = root / f"cut.{extension}"
+                    cut_file.write_bytes(cut_content)
+                    cut_probe = json.loads(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", str(cut_file)]))
+                    assert 0.4 <= float(cut_probe["format"]["duration"]) <= 1.1
+                    types = {stream["codec_type"] for stream in cut_probe["streams"]}
+                    assert "audio" in types
+                    assert ("video" in types) == (extension == "mp4")
+                    for query in ["start=-1&end=1", "start=1&end=0", "start=0&end=7201", "start=0&end=5"]:
+                        upload(f"/api/convert/cut-{extension}?{query}", f"sample.{extension}", source, expected=400)
+                    upload(f"/api/convert/cut-{extension}?start=0&end=0.5", f"fake.{extension}", b"invalid", expected=400)
+
                 gif_url = upload("/api/convert/gif", "sample.mp4", video.read_bytes())
                 assert upload("/api/convert/gif", "renamed.mp4", video.read_bytes()) == gif_url
                 gif_content, gif_headers = get(gif_url)
