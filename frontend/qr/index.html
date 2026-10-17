@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Free QR Code Generator - Text or URL to PNG | AdmerPRO Tools</title>
     <link rel="stylesheet" href="/root/style.css">
+    <link rel="stylesheet" href="/qr/style.css">
     <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
     <link rel="apple-touch-icon" href="/assets/good_cat_image.png">
     <meta name="description" content="Create a QR code online from text or a URL. Preview the code and download a PNG for free. Submitted text is processed without being stored.">
@@ -45,6 +46,22 @@
                     <label for="qr-text">Text or URL</label>
                     <textarea id="qr-text" name="text" rows="5" maxlength="2000" placeholder="https://example.com" required></textarea>
                     <p class="hint">Up to 2000 UTF-8 bytes. Your text is processed to generate the code and is not stored. A QR code containing a URL does not shorten it.</p>
+                    <fieldset class="qr-options">
+                        <legend>Customize your QR code</legend>
+                        <div class="qr-options-grid">
+                            <label for="qr-color">Code color<input id="qr-color" type="color" value="#000000"></label>
+                            <label for="qr-background">Background color<input id="qr-background" type="color" value="#ffffff"></label>
+                            <label for="qr-size">PNG size<select id="qr-size"><option value="512">512 x 512</option><option value="1024" selected>1024 x 1024</option><option value="2048">2048 x 2048</option></select></label>
+                        </div>
+                        <label for="qr-logo">Center image (optional)</label>
+                        <input id="qr-logo" type="file" accept="image/png,image/jpeg,image/webp">
+                        <p class="hint">PNG, JPG or WebP, up to 5 MB. Your image stays in your browser.</p>
+                        <div class="qr-options-grid">
+                            <label for="qr-logo-size">Image size <output id="qr-logo-size-value">16%</output><input id="qr-logo-size" type="range" min="10" max="20" value="16"></label>
+                            <button id="qr-remove-logo" type="button" hidden>Remove image</button>
+                        </div>
+                        <p class="hint">Use a dark code on a light background. Test your customized code with a scanner before printing or sharing.</p>
+                    </fieldset>
                     <button type="submit">Generate QR code &#8594;</button>
                 </form>
                 <p id="status" class="status" role="status" aria-live="polite"></p>

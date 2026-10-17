@@ -9,12 +9,19 @@ use std::io::Cursor;
 #[derive(serde::Deserialize)]
 pub struct QrRequest {
     text: String,
+    #[serde(default)]
+    high_correction: bool,
 }
 
-fn generate(text: &str) -> anyhow::Result<Vec<u8>> {
+fn generate(text: &str, high_correction: bool) -> anyhow::Result<Vec<u8>> {
     anyhow::ensure!(!text.trim().is_empty(), "Enter text or a URL.");
     anyhow::ensure!(text.len() <= 2000, "Use at most 2000 UTF-8 bytes.");
-    let code = qrcode::QrCode::new(text.as_bytes())?;
+    let level = if high_correction {
+        qrcode::EcLevel::H
+    } else {
+        qrcode::EcLevel::M
+    };
+    let code = qrcode::QrCode::with_error_correction_level(text.as_bytes(), level)?;
     let image = code.render::<Luma<u8>>().min_dimensions(512, 512).build();
     let mut output = Cursor::new(Vec::new());
     DynamicImage::ImageLuma8(image).write_to(&mut output, ImageFormat::Png)?;
@@ -30,7 +37,7 @@ pub async fn qr_handler(
     let png = tokio::task::spawn_blocking(move || {
         let _client_permit = client_permit;
         let _permit = permit;
-        generate(&request.text)
+        generate(&request.text, request.high_correction)
     })
     .await
     .map_err(|error| {
@@ -64,14 +71,15 @@ mod tests {
 
     #[test]
     fn creates_png_with_white_quiet_zone_and_rejects_invalid_input() {
-        let png = generate("https://example.org/zażółć").unwrap();
+        let png = generate("https://example.org/zażółć", false).unwrap();
         let image = image::load_from_memory(&png).unwrap().to_luma8();
         assert!(image.width() >= 512);
         assert_eq!(image.width(), image.height());
         assert_eq!(image.get_pixel(0, 0).0, [255]);
         assert!(image.pixels().any(|pixel| pixel.0 == [0]));
-        assert!(generate("   ").is_err());
-        assert!(generate(&"a".repeat(2001)).is_err());
-        assert!(generate(&"a".repeat(2000)).is_ok());
+        assert!(generate("   ", false).is_err());
+        assert!(generate(&"a".repeat(2001), false).is_err());
+        assert!(generate(&"a".repeat(2000), false).is_ok());
+        assert!(generate("https://example.org", true).is_ok());
     }
 }
