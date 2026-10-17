@@ -253,6 +253,7 @@ footer a:hover {
 
 .mode-tabs {
     display:flex;
+    flex-wrap:wrap;
     gap:6px;
     border-bottom:1px solid var(--line);
     padding-bottom:20px;
@@ -264,6 +265,19 @@ footer a:hover {
     border-radius:10px;
     color:var(--muted);
     font-size:14px;
+}
+
+.mode-tabs button {
+    padding:10px 18px;
+    background:transparent;
+    color:var(--muted);
+    border:1px solid var(--line);
+}
+
+.mode-tabs button[aria-pressed=true] {
+    background:#e7edf4;
+    color:var(--accent);
+    border-color:var(--accent);
 }
 
 .mode-tabs a[aria-current=page] {

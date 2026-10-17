@@ -115,20 +115,20 @@ async fn main() -> Result<()> {
         .route_service("/style.css", ServeFile::new("frontend/root/style.css"))
         .route(
             "/youtubemp4/",
-            get(|| async { root::page_handler("youtubemp4").await }),
+            get(|| async { axum::response::Redirect::permanent("/youtube/") }),
         )
         .route("/api/healthcheck", get(healthcheck::healthcheck_handler))
         .route(
             "/youtubemp3/",
-            get(|| async { root::page_handler("youtubemp3").await }),
+            get(|| async { axum::response::Redirect::permanent("/youtube/") }),
         )
         .route(
             "/youtubemp3",
-            get(|| async { axum::response::Redirect::permanent("/youtubemp3/") }),
+            get(|| async { axum::response::Redirect::permanent("/youtube/") }),
         )
         .route(
             "/youtubemp4",
-            get(|| async { axum::response::Redirect::permanent("/youtubemp4/") }),
+            get(|| async { axum::response::Redirect::permanent("/youtube/") }),
         )
         .route(
             "/api/youtube/download/mp3",
@@ -161,14 +161,25 @@ async fn main() -> Result<()> {
         ("mp4cutter", "/mp4cutter/"),
         ("mp3cutter", "/mp3cutter/"),
         ("mp4togif", "/mp4togif/"),
-        ("youtubemp4", "/youtubemp4/"),
-        ("youtubemp3", "/youtubemp3/"),
+        ("youtubemp4", "/youtube/"),
+        ("youtubemp3", "/youtube/"),
         ("privacy", "/privacy/"),
     ] {
         app = app.route(
             &format!("/{page}/index.html"),
             get(move || async move { axum::response::Redirect::permanent(destination) }),
         );
+    }
+
+    for page in ["youtube", "instagram", "tiktok"] {
+        app = app
+            .route(&format!("/{page}/"), get(move || async move { root::page_handler(page).await }))
+            .route(&format!("/{page}"), get(move || async move {
+                axum::response::Redirect::permanent(&format!("/{page}/"))
+            }))
+            .route(&format!("/{page}/index.html"), get(move || async move {
+                axum::response::Redirect::permanent(&format!("/{page}/"))
+            }));
     }
 
     app = app.layer(axum::middleware::from_fn_with_state(

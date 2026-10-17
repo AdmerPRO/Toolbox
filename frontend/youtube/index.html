@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>YouTube Downloader - Video and Audio | AdmerPRO Tools</title>
+		<link rel="stylesheet" href="../root/style.css">
+	    <link rel="icon" type="image/png" href="/assets/good_cat_image.png">
+    <link rel="apple-touch-icon" href="/assets/good_cat_image.png">
+    <meta name="description" content="Download permitted YouTube videos as MP4 or audio as MP3. Choose the available video resolution or audio bitrate.">
+    <link rel="canonical" href="https://tools.admerpro.com/youtube/">
+    <link rel="stylesheet" href="/shared/privacy.css">
+    <script src="/shared/privacy.js" defer></script>
+</head>
+	<body data-format="mp4" data-platform="youtube">
+		<div class="shell">
+			<header class="site-header">
+				<a class="brand" href="/" aria-label="AdmerPRO Tools home">
+					<img class="brand-cat" src="/assets/good_cat_image.png" alt="" width="38" height="38">AdmerPRO Tools</a>
+				<nav class="main-nav" aria-label="Main navigation">
+                    <a href="/">All tools</a>
+                    <a href="/images/">Convert images</a>
+                    <a href="/qr/">QR generator</a>
+                    <a href="/resize/">Resize images</a>
+                    <a href="/mp4tomp3/">Extract audio</a>
+                    <a href="/mute/">Mute video</a>
+                    <a href="/youtube/" aria-current="page">YouTube Downloader</a>
+                    <a href="/instagram/">Instagram Downloader</a>
+                    <a href="/tiktok/">TikTok Downloader</a>
+                    <a href="/mp4togif/">Gif Maker</a>
+                    <a href="/mp4cutter/">MP4 Cutter</a>
+<a href="/mp3cutter/">MP3 Cutter</a>
+<a href="/privacy/">Privacy</a>
+</nav>
+			</header>
+			<main class="downloader" itemscope itemtype="https://schema.org/WebApplication">
+            <link itemprop="url" href="https://tools.admerpro.com/youtube/">
+            <meta itemprop="applicationCategory" content="MultimediaApplication">
+            <meta itemprop="operatingSystem" content="Any">
+            <meta itemprop="description" content="Download permitted YouTube videos as MP4 or audio as MP3. Choose the available video resolution or audio bitrate.">
+            <span itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+                <meta itemprop="price" content="0"><meta itemprop="priceCurrency" content="USD">
+            </span>
+				<a class="back-link" href="/">&#8592; Back to all tools</a>
+				<h1 itemprop="name">Download YouTube Video and Audio</h1>
+				<p class="lead">Download YouTube video or audio. Paste a video link first, then choose MP4 video or MP3 audio.</p>
+				<div class="panel">
+					<form id="video-form">
+						<label for="youtube-url">YouTube video link</label>
+						<div class="input-row">
+							<input id="youtube-url" name="url" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" required>
+							<button type="submit">Find video &#8594;</button>
+						</div>
+						<p class="hint">Supports YouTube videos, Shorts and youtu.be links.</p>
+					</form>
+					<p id="status" class="status" role="status" aria-live="polite">
+					</p>
+					<section id="video-result" class="video-result" aria-label="Video details" hidden>
+						<img id="thumbnail" alt="Video thumbnail" referrerpolicy="no-referrer">
+						<div class="video-details">
+							<h2 id="video-title">
+							</h2>
+							<div class="mode-tabs" role="group" aria-label="Download format">
+                        <button type="button" data-download-format="mp4" aria-pressed="true">&#9654; Video / MP4</button>
+                        <button type="button" data-download-format="mp3" aria-pressed="false">&#9835; Audio / MP3</button>
+                    </div>
+                            <label for="quality">Video resolution</label>
+							<select id="quality">
+							</select>
+                            <label class="author-confirmation" for="is-author">
+                                <input id="is-author" type="checkbox" required>
+                                Are you the author of this material?
+                            </label>
+							<button id="download-button" type="button">Download MP4 &#8595;</button>
+						</div>
+					</section>
+					<a id="download-link" class="download-link" hidden>Save MP4 file &#8595;</a>
+				</div>
+				<div class="steps">
+					<span>
+						<b>01</b> Paste a video link</span>
+					<span>
+						<b>02</b> Choose format and quality</span>
+					<span>
+						<b>03</b> Download your video</span>
+				</div>
+				<p class="hint">Download content you own or have permission to download. Available resolutions depend on the original video.</p>
+
+            <section class="seo-content" aria-label="About this tool">
+                <h2>Save a YouTube video as an MP4</h2><p>Use a YouTube video link to prepare an MP4 download. Choose MP4 with an available video resolution, or MP3 with an audio bitrate from 128 to 320 kbps.</p>
+                <h2>How to use this tool</h2><ol><li>Accept the privacy policy and paste a link to content you own or have permission to download.</li><li>Load the video information, then choose MP4 video or MP3 audio and your quality.</li><li>Start the download preparation, then save the resulting file.</li></ol>
+                <h2>Why is my preferred resolution unavailable?</h2><p>Resolution choices depend on the source video. A video uploaded at a lower resolution cannot be downloaded in true 4K. This tool processes one video at a time rather than a playlist, and preparation may take longer for large videos.</p>
+                <h2>Download availability and privacy</h2><p>Result links are available for 7 days. Files then move into ZIP archives deleted 30 days after creation. File-related IP addresses and download times are recorded for abuse investigation. <a href="/privacy/">Read the privacy policy</a> before submitting files or links.</p>
+                <h2>Related tools</h2><p><a href="/instagram/">Instagram Downloader</a> <a href="/tiktok/">TikTok Downloader</a></p>
+            </section>
+        </main>
+			<footer>
+				<a href="/privacy/">Privacy policy</a>
+				<span>Files are available for 7 days, then archived in ZIP files for another 30 days.</span>
+				<span>Made for the everyday. Free &amp; ad-free.</span>
+				<a href="https://github.com/AdmerPRO/Toolbox" target="_blank" rel="noopener noreferrer">Source on GitHub &#8599;</a>
+			</footer>
+		</div>
+		<script src="../shared/downloader.js">
+		</script>
+
+    <aside id="privacy-notice" hidden aria-label="Privacy policy acceptance">
+        <p>Media tools require acceptance of the <a href="/privacy/">privacy policy</a>. Browsing public pages remains available.</p>
+        <button id="privacy-review" type="button">Review and accept</button>
+    </aside>
+    <dialog id="privacy-dialog" aria-labelledby="privacy-title" aria-describedby="privacy-summary">
+        <h2 id="privacy-title">Do you accept our privacy policy?</h2>
+        <p id="privacy-summary">We store uploaded files and generated results, your upload IP address, and the IP addresses and times of file downloads to investigate abuse and illegal uploads. The administrator may inspect uploaded files, results, and archives to protect the website, its operator, and content creators. Suspected illegal uploads may be reported to competent authorities with relevant records where legally justified.</p>
+        <p>Links expire after 7 days. Files are then archived; ZIP archives are deleted 30 days after creation. File-related IP records are removed when all retained copies of that file are deleted. Downtime can extend retention.</p>
+        <p>Only submit lawful content that you are authorized to process. <a href="/privacy/">Read the full privacy policy</a> before deciding.</p>
+        <p id="privacy-cookie-error" hidden>Please enable essential cookies to remember your choice.</p>
+        <div class="privacy-actions">
+            <button id="privacy-accept" type="button">I accept the privacy policy</button>
+            <button id="privacy-decline" type="button">I do not accept</button>
+        </div>
+    </dialog>
+    <noscript><p>JavaScript and the privacy acceptance cookie are required to use media tools. Please read the <a href="/privacy/">privacy policy</a>.</p></noscript>
+
+</body>
+</html>
