@@ -3,6 +3,14 @@ use tracing::info;
 
 fn pasted_video_destination(uri: &axum::http::Uri) -> Option<String> {
     let raw = uri.path_and_query()?.as_str().strip_prefix('/')?;
+    let expanded = [
+        ("youtube/", "https://www.youtube.com/"),
+        ("instagram/", "https://www.instagram.com/"),
+        ("tiktok/", "https://www.tiktok.com/"),
+    ].into_iter().find_map(|(prefix, origin)| {
+        raw.strip_prefix(prefix).map(|path| format!("{origin}{path}"))
+    });
+    let raw = expanded.as_deref().unwrap_or(raw);
     // Decode an encoded pasted URL without treating literal plus signs as spaces.
     let escaped = raw.replace('+', "%2B").replace('&', "%26").replace('=', "%3D");
     let input = url::form_urlencoded::parse(format!("url={escaped}").as_bytes())
@@ -133,6 +141,8 @@ mod tests {
             "/https://www.youtube.com/watch?v=HZ1I2F5aBvc",
             "/https://youtu.be/HZ1I2F5aBvc?si=abc",
             "/https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DHZ1I2F5aBvc",
+            "/youtube/watch?v=HZ1I2F5aBvc",
+            "/youtube/shorts/HZ1I2F5aBvc",
         ] {
             assert_eq!(pasted_video_destination(&input.parse().unwrap()).as_deref(), Some("/youtube/?watch=HZ1I2F5aBvc"));
         }
@@ -140,10 +150,14 @@ mod tests {
             ("/https://www.instagram.com/reel/ABC_123/?igsh=abc", "/instagram/?watch="),
             ("/https://www.tiktok.com/@user/video/123456", "/tiktok/?watch="),
             ("/https://vm.tiktok.com/ABC123/", "/tiktok/?watch="),
+            ("/instagram/reel/ABC_123/?igsh=abc", "/instagram/?watch="),
+            ("/instagram/p/ABC_123/", "/instagram/?watch="),
+            ("/tiktok/@user/video/123456", "/tiktok/?watch="),
+            ("/tiktok/t/ABC123/", "/tiktok/?watch="),
         ] {
             assert!(pasted_video_destination(&input.parse().unwrap()).unwrap().starts_with(prefix));
         }
-        for input in ["/qr/", "/https://youtube.com.evil.example/watch?v=HZ1I2F5aBvc", "/https://example.com/video"] {
+        for input in ["/qr/", "/youtube/", "/youtube/?watch=HZ1I2F5aBvc", "/instagram/?watch=abc", "/tiktok/?watch=abc", "/youtube/watch?v=invalid", "/instagram/profile/", "/tiktok/@user", "/https://youtube.com.evil.example/watch?v=HZ1I2F5aBvc", "/https://example.com/video"] {
             assert!(pasted_video_destination(&input.parse().unwrap()).is_none());
         }
     }
