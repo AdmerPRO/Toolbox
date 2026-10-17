@@ -18,6 +18,20 @@ const platforms = {
     tiktok: { name: 'TikTok', hosts: ['tiktok.com', 'www.tiktok.com', 'm.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com'] }
 };
 const provider = platforms[platform];
+const watch = new URLSearchParams(window.location.search).get('watch');
+if (watch && provider) {
+    if (platform === 'youtube' && /^[a-zA-Z0-9_-]{11}$/.test(watch)) {
+        input.value = `https://www.youtube.com/watch?v=${watch}`;
+    } else {
+        try {
+            const video = new URL(watch);
+            if (video.protocol === 'https:' && !video.username && !video.password &&
+                (!video.port || video.port === '443') && provider.hosts.includes(video.hostname)) {
+                input.value = video.href;
+            }
+        } catch { /* Ignore invalid watch parameters. */ }
+    }
+}
 const formatButtons = [...document.querySelectorAll('[data-download-format]')];
 let currentVideo;
 function populateQuality() {

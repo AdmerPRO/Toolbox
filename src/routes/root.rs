@@ -1,6 +1,37 @@
 use axum::{http::StatusCode, response::Html};
 use tracing::info;
 
+fn pasted_video_destination(uri: &axum::http::Uri) -> Option<String> {
+    let raw = uri.path_and_query()?.as_str().strip_prefix('/')?;
+    // Decode an encoded pasted URL without treating literal plus signs as spaces.
+    let escaped = raw.replace('+', "%2B").replace('&', "%26").replace('=', "%3D");
+    let input = url::form_urlencoded::parse(format!("url={escaped}").as_bytes())
+        .next()?.1.into_owned();
+    let canonical = crate::api::download_youtube_mp4::media_video_url(&input)?;
+    let video = url::Url::parse(&canonical).ok()?;
+    let (platform, watch) = match video.host_str()? {
+        "www.youtube.com" => ("youtube", video.query_pairs().find(|(key, _)| key == "v")?.1.into_owned()),
+        "www.instagram.com" => ("instagram", canonical),
+        _ => ("tiktok", canonical),
+    };
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("watch", &watch).finish();
+    Some(format!("/{platform}/?{query}"))
+}
+
+pub async fn pasted_video_redirect(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD) {
+        if let Some(destination) = pasted_video_destination(request.uri()) {
+            return axum::response::Redirect::temporary(&destination).into_response();
+        }
+    }
+    next.run(request).await
+}
+
 pub async fn root_handler() -> Result<Html<String>, StatusCode> {
     page_handler("root").await
 }
@@ -95,6 +126,27 @@ pub async fn robots_handler()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pasted_links_route_to_their_platform() {
+        for input in [
+            "/https://www.youtube.com/watch?v=HZ1I2F5aBvc",
+            "/https://youtu.be/HZ1I2F5aBvc?si=abc",
+            "/https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DHZ1I2F5aBvc",
+        ] {
+            assert_eq!(pasted_video_destination(&input.parse().unwrap()).as_deref(), Some("/youtube/?watch=HZ1I2F5aBvc"));
+        }
+        for (input, prefix) in [
+            ("/https://www.instagram.com/reel/ABC_123/?igsh=abc", "/instagram/?watch="),
+            ("/https://www.tiktok.com/@user/video/123456", "/tiktok/?watch="),
+            ("/https://vm.tiktok.com/ABC123/", "/tiktok/?watch="),
+        ] {
+            assert!(pasted_video_destination(&input.parse().unwrap()).unwrap().starts_with(prefix));
+        }
+        for input in ["/qr/", "/https://youtube.com.evil.example/watch?v=HZ1I2F5aBvc", "/https://example.com/video"] {
+            assert!(pasted_video_destination(&input.parse().unwrap()).is_none());
+        }
+    }
 
     #[test]
     fn validates_and_normalizes_public_origin() {

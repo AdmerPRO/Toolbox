@@ -220,7 +220,7 @@ fn youtube_video_url(input: &str) -> Option<String> {
     Some(format!("https://www.youtube.com/watch?v={id}"))
 }
 
-fn media_video_url(input: &str) -> Option<String> {
+pub(crate) fn media_video_url(input: &str) -> Option<String> {
     if let Some(url) = youtube_video_url(input) {
         return Some(url);
     }

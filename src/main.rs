@@ -182,6 +182,8 @@ async fn main() -> Result<()> {
             }));
     }
 
+    app = app.layer(axum::middleware::from_fn(root::pasted_video_redirect));
+
     app = app.layer(axum::middleware::from_fn_with_state(
         limiter,
         rate_limit::middleware,
